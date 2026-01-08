@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+
+# Training outputs
+output/
+*.pt
+*.bin
+*.safetensors
+
+# Logs
+*.log
+wandb/
+
+# Environment
+.env
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
