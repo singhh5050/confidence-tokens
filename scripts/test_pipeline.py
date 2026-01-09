@@ -59,7 +59,12 @@ def test_approach_a(model, tokenizer, conf_token_id):
     
     # Prepare tiny dataset
     train_ds = prepare_suffix_confidence_dataset("mmlu_pro", tokenizer, "train", max_samples=10)
-    train_ds = get_tokenized_dataset(train_ds, tokenizer, max_length=512)
+    train_ds = get_tokenized_dataset(
+        train_ds,
+        tokenizer,
+        max_length=512,
+        include_conf_fields=False,
+    )
     
     config = ConfidenceTrainingConfig(
         output_dir="./test_output_a",
@@ -97,7 +102,12 @@ def test_approach_b(model, tokenizer, conf_token_id):
     
     # Prepare tiny dataset
     train_ds = prepare_suffix_confidence_dataset("mmlu_pro", tokenizer, "train", max_samples=10)
-    train_ds = get_tokenized_dataset(train_ds, tokenizer, max_length=512)
+    train_ds = get_tokenized_dataset(
+        train_ds,
+        tokenizer,
+        max_length=512,
+        include_conf_fields=True,
+    )
     
     config = ConfidenceTrainingConfig(
         output_dir="./test_output_b",

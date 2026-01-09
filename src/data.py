@@ -55,7 +55,12 @@ def extract_from_nested(example: Dict, model_name: str = DEFAULT_MODEL) -> Dict:
         model_name: Which model's responses/labels to use
         
     Returns:
-        Dict with 'question', 'answer', 'is_correct'
+        Dict with:
+            - question
+            - answer
+            - is_correct
+            - source_model: which model was used
+            - used_fallback: bool, true if default model was missing
     """
     # Question is always in 'problem' column
     question = example.get("problem", "")
@@ -63,11 +68,13 @@ def extract_from_nested(example: Dict, model_name: str = DEFAULT_MODEL) -> Dict:
     # Get model-specific metrics
     model_metrics = example.get("model_metrics", {})
     
+    used_fallback = False
     if model_name not in model_metrics:
         # Fallback: try to find any available model
         available_models = list(model_metrics.keys())
         if available_models:
             model_name = available_models[0]
+            used_fallback = True
         else:
             raise ValueError(f"No model metrics found in example. Available: {model_metrics.keys()}")
     
@@ -84,6 +91,8 @@ def extract_from_nested(example: Dict, model_name: str = DEFAULT_MODEL) -> Dict:
         "question": question,
         "answer": answer,
         "is_correct": float(is_correct),  # Convert bool to float for training
+        "source_model": model_name,
+        "used_fallback": used_fallback,
     }
 
 
@@ -177,9 +186,14 @@ def prepare_suffix_confidence_dataset(
     if max_samples is not None and len(dataset) > max_samples:
         dataset = dataset.select(range(max_samples))
     
+    fallback_counter = {"used": 0, "total": 0}
+    
     def format_example(example):
+        fallback_counter["total"] += 1
         # Extract from nested structure
         extracted = extract_from_nested(example, model_name)
+        if extracted.get("used_fallback"):
+            fallback_counter["used"] += 1
         
         question = str(extracted["question"])
         answer = str(extracted["answer"])
@@ -206,6 +220,14 @@ def prepare_suffix_confidence_dataset(
         remove_columns=dataset.column_names,
         desc=f"Formatting {dataset_name} ({split}) using {model_name}"
     )
+    
+    if fallback_counter["used"] > 0:
+        print(
+            f"⚠ Model metrics fallback used for {fallback_counter['used']}/{fallback_counter['total']} "
+            f"samples (requested model: {model_name})"
+        )
+    else:
+        print(f"✓ Model metrics all from requested model: {model_name}")
     
     return formatted_dataset
 
@@ -253,7 +275,7 @@ def tokenize_for_training(
     max_length: int = 2048,
 ) -> Dict[str, List]:
     """
-    Tokenize examples for training.
+    Tokenize examples for training and recompute CONF positions after tokenization.
     """
     tokenized = tokenizer(
         examples["text"],
@@ -266,9 +288,24 @@ def tokenize_for_training(
     # For causal LM, labels = input_ids
     tokenized["labels"] = tokenized["input_ids"].copy()
     
-    # Pass through confidence labels and positions
+    # Recompute CONF token position post-tokenization to avoid special-token offsets
+    conf_token_id = tokenizer.convert_tokens_to_ids("<|CONF|>")
+    conf_positions = []
+    valid_conf = []
+    truncated = []
+    for ids in tokenized["input_ids"]:
+        truncated.append(len(ids) == max_length)
+        if conf_token_id in ids:
+            conf_positions.append(ids.index(conf_token_id))
+            valid_conf.append(True)
+        else:
+            conf_positions.append(-1)
+            valid_conf.append(False)
+    
     tokenized["confidence_label"] = examples["confidence_label"]
-    tokenized["conf_token_position"] = examples["conf_token_position"]
+    tokenized["conf_token_position"] = conf_positions
+    tokenized["valid_conf"] = valid_conf
+    tokenized["truncated"] = truncated
     
     return tokenized
 
@@ -277,13 +314,50 @@ def get_tokenized_dataset(
     dataset: Dataset,
     tokenizer: PreTrainedTokenizer,
     max_length: int = 2048,
+    include_conf_fields: bool = True,
+    drop_invalid_conf: bool = True,
 ) -> Dataset:
     """
     Tokenize a formatted dataset for training.
     """
-    return dataset.map(
+    tokenized = dataset.map(
         lambda x: tokenize_for_training(x, tokenizer, max_length),
         batched=True,
         remove_columns=["text"],
         desc="Tokenizing dataset"
     )
+    
+    total_rows = len(tokenized)
+    valid_conf_mask = tokenized["valid_conf"]
+    truncated_mask = tokenized["truncated"]
+    invalid_conf = sum(1 for v in valid_conf_mask if not v)
+    truncated = sum(1 for t in truncated_mask if t)
+    
+    if include_conf_fields and drop_invalid_conf:
+        tokenized = tokenized.filter(lambda ex: ex["valid_conf"])
+    
+    print(
+        f"Tokenization summary: total={total_rows}, "
+        f"invalid_conf={invalid_conf}, truncated={truncated}, "
+        f"kept={len(tokenized)}"
+    )
+    if invalid_conf > 0:
+        print(f"⚠ Dropped {invalid_conf} samples without a valid <|CONF|> token")
+    if truncated > 0:
+        print(f"⚠ {truncated} samples were truncated to max_length={max_length}")
+    
+    # Remove helper fields that the trainer/collator should not see
+    drop_cols = ["valid_conf", "truncated"]
+    if include_conf_fields:
+        # keep confidence_label and conf_token_position
+        cols_to_remove = [c for c in drop_cols if c in tokenized.column_names]
+        tokenized = tokenized.remove_columns(cols_to_remove)
+    else:
+        # remove all confidence-related columns
+        cols_to_remove = [
+            c for c in ["confidence_label", "conf_token_position"] + drop_cols
+            if c in tokenized.column_names
+        ]
+        tokenized = tokenized.remove_columns(cols_to_remove)
+    
+    return tokenized

@@ -132,9 +132,9 @@ Examples:
     # Precision
     parser.add_argument(
         "--bf16",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
         default=True,
-        help="Use bfloat16 precision (default: True)"
+        help="Use bfloat16 precision (default: True; disable with --no-bf16)"
     )
     parser.add_argument(
         "--fp16",
@@ -180,7 +180,8 @@ Examples:
     print(f"  Batch size: {args.batch_size} x {args.grad_accum} (effective: {args.batch_size * args.grad_accum})")
     print(f"  Learning rate: {args.lr}")
     print(f"  Max samples: {args.max_samples or 'all'}")
-    print(f"  Precision: {'bf16' if args.bf16 and not args.fp16 else 'fp16'}")
+    print(f"  bf16 supported: {bf16_supported}")
+    print(f"  Precision: {'bf16' if dtype == torch.bfloat16 else ('fp16' if dtype == torch.float16 else 'fp32')}")
     print(f"  Logging: {'wandb' if args.wandb else 'none'}")
     if args.supervised:
         print(f"  Confidence loss weight (α): {args.alpha}")
@@ -198,10 +199,14 @@ Examples:
         tokenizer.pad_token = tokenizer.eos_token
     
     # Determine dtype
+    bf16_supported = torch.cuda.is_available() and torch.cuda.is_bf16_supported()
     if args.fp16:
         dtype = torch.float16
-    elif args.bf16:
+    elif args.bf16 and bf16_supported:
         dtype = torch.bfloat16
+    elif args.bf16 and not bf16_supported:
+        print("⚠ bf16 requested but not supported on this hardware; falling back to fp16")
+        dtype = torch.float16
     else:
         dtype = torch.float32
     
@@ -254,9 +259,19 @@ Examples:
     
     # Tokenize
     print("\nTokenizing datasets...")
-    train_dataset = get_tokenized_dataset(train_dataset, tokenizer, args.max_length)
+    train_dataset = get_tokenized_dataset(
+        train_dataset,
+        tokenizer,
+        args.max_length,
+        include_conf_fields=args.supervised,
+    )
     if eval_dataset:
-        eval_dataset = get_tokenized_dataset(eval_dataset, tokenizer, args.max_length)
+        eval_dataset = get_tokenized_dataset(
+            eval_dataset,
+            tokenizer,
+            args.max_length,
+            include_conf_fields=args.supervised,
+        )
     print("✓ Tokenization complete")
     
     # Configure training

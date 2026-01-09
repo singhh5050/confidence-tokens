@@ -102,7 +102,8 @@ from src.training import ConfidenceTrainingConfig, train_confidence_model
 
 # Prepare data
 train_data = prepare_suffix_confidence_dataset("mmlu_pro", tokenizer, "train")
-train_data = get_tokenized_dataset(train_data, tokenizer)
+# Use include_conf_fields=True when training the supervised variant
+train_data = get_tokenized_dataset(train_data, tokenizer, include_conf_fields=True)
 
 # Approach A: SFT only
 config = ConfidenceTrainingConfig(output_dir="./output", supervised=False)

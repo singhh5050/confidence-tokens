@@ -6,6 +6,7 @@ Two approaches:
 - Approach B (Supervised): Explicit supervision on <|CONF|> hidden state
 """
 
+import os
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, field
 
@@ -66,7 +67,7 @@ class ConfidenceTrainingConfig:
     
     # Memory optimization (CRITICAL for 7B models on single GPU)
     gradient_checkpointing: bool = True  # Recompute activations to save memory
-    optim: str = "adamw_bnb_8bit"  # 8-bit optimizer saves ~75% optimizer memory
+    optim: str = "paged_adamw_8bit"  # Paged 8-bit optimizer (bnb), stable across HF versions
     
     # Reporting
     report_to: str = "wandb"
@@ -194,7 +195,12 @@ class SuffixConfidenceTrainer(Trainer):
         
         # Memory-efficient forward: get last_hidden_state directly from base model
         # This avoids storing ALL layer hidden states (massive memory savings)
-        base_model = model.model  # For CausalLM models, .model is the base transformer
+        base_model = getattr(model, "model", None) or getattr(model, "base_model", None)
+        if base_model is None:
+            raise AttributeError(
+                "Could not locate base transformer on model; expected `model.model` "
+                "or `model.base_model`. Please verify the architecture."
+            )
         
         base_outputs = base_model(
             input_ids=inputs["input_ids"],
@@ -218,26 +224,47 @@ class SuffixConfidenceTrainer(Trainer):
         # Vectorized gather of CONF hidden states (no loop needed)
         batch_size = last_hidden.size(0)
         batch_idx = torch.arange(batch_size, device=device)
-        conf_hidden = last_hidden[batch_idx, conf_token_positions.to(device)]  # (batch, hidden)
+        seq_len = last_hidden.size(1)
+        conf_positions = conf_token_positions.to(device)
+        
+        # Guard against any out-of-bounds positions (should be rare after filtering)
+        invalid_mask = conf_positions >= seq_len
+        if invalid_mask.any():
+            # Clamp to last token to avoid crashes; loss masking handles invalid entries
+            conf_positions = torch.clamp(conf_positions, max=seq_len - 1)
+        
+        conf_hidden = last_hidden[batch_idx, conf_positions]  # (batch, hidden)
         
         # Predict confidence from hidden state
         conf_logits = self.confidence_head(conf_hidden).squeeze(-1)  # (batch,)
         
         # Confidence supervision loss (Binary Cross-Entropy)
-        conf_loss = F.binary_cross_entropy_with_logits(
+        conf_targets = confidence_labels.to(device)
+        bce = F.binary_cross_entropy_with_logits(
             conf_logits, 
-            confidence_labels.to(device)
+            conf_targets,
+            reduction="none",
         )
+        valid_mask = (~invalid_mask).float()
+        valid_count = valid_mask.sum().clamp(min=1.0)
+        conf_loss = (bce * valid_mask).sum() / valid_count
         
         # Combined loss: (1-α) * LM + α * Confidence
         total_loss = (1 - self.alpha) * lm_loss + self.alpha * conf_loss
         
         # Log both losses for monitoring
         if self.state.global_step % self.args.logging_steps == 0:
+            with torch.no_grad():
+                conf_probs = torch.sigmoid(conf_logits)
             self.log({
                 "lm_loss": lm_loss.item(),
                 "conf_loss": conf_loss.item(),
                 "conf_accuracy": ((conf_logits > 0).float() == confidence_labels.to(device)).float().mean().item(),
+                "conf_logit_mean": conf_logits.mean().item(),
+                "conf_logit_std": conf_logits.std().item(),
+                "conf_prob_mean": conf_probs.mean().item(),
+                "conf_prob_std": conf_probs.std().item(),
+                "conf_invalid_frac": invalid_mask.float().mean().item(),
             })
         
         if return_outputs:
@@ -413,6 +440,7 @@ def train_confidence_model(
     print(f"  Learning rate: {config.learning_rate}")
     print(f"  Epochs: {config.num_train_epochs}")
     print(f"  BF16: {config.bf16}")
+    print(f"  Optimizer: {config.optim}")
     
     if config.supervised:
         print(f"  Confidence loss weight (α): {config.confidence_loss_weight}")
@@ -432,6 +460,23 @@ def train_confidence_model(
         config=config,
         conf_token_id=conf_token_id,
     )
+    
+    # Force optimizer creation to confirm 8-bit optimizer is used
+    trainer.create_optimizer()
+    optim_cls = type(trainer.optimizer).__name__ if trainer.optimizer else "None"
+    print(f"Optimizer check: args.optim={trainer.args.optim}, class={optim_cls}")
+    if optim_cls == "AdamW":
+        print("⚠ Warning: 8-bit optimizer not in use (got torch.optim.AdamW). Expect higher memory.")
+    
+    # If resuming supervised training, restore the confidence head
+    if config.supervised and resume_from_checkpoint:
+        head_path = f"{resume_from_checkpoint}/confidence_head.pt"
+        if os.path.exists(head_path) and isinstance(trainer, SuffixConfidenceTrainer):
+            state_dict = torch.load(head_path, map_location=next(model.parameters()).device)
+            trainer.confidence_head.load_state_dict(state_dict)
+            print(f"✓ Loaded confidence head from {head_path}")
+        else:
+            print(f"⚠ confidence_head.pt not found at {head_path}, starting head from scratch")
     
     print("\n" + "-" * 70)
     print("Starting training...")
