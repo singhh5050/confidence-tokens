@@ -64,6 +64,9 @@ class ConfidenceTrainingConfig:
     bf16: bool = True
     fp16: bool = False
     
+    # Memory optimization
+    gradient_checkpointing: bool = True  # Essential for 7B models on <80GB GPUs
+    
     # Reporting
     report_to: str = "wandb"
     run_name: Optional[str] = None
@@ -94,6 +97,7 @@ class ConfidenceTrainingConfig:
             eval_strategy=self.eval_strategy,
             bf16=self.bf16,
             fp16=self.fp16,
+            gradient_checkpointing=self.gradient_checkpointing,
             report_to=self.report_to,
             run_name=self.run_name,
             dataloader_num_workers=self.dataloader_num_workers,
