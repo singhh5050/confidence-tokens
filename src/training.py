@@ -20,7 +20,8 @@ from transformers import (
     PreTrainedModel,
     PreTrainedTokenizer,
 )
-from transformers.trainer_pt_utils import get_parameter_names, ALL_LAYERNORM_LAYERS
+from transformers.trainer_pt_utils import get_parameter_names
+from transformers.pytorch_utils import ALL_LAYERNORM_LAYERS
 from datasets import Dataset
 
 
