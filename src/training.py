@@ -55,6 +55,7 @@ class ConfidenceTrainingConfig:
     # Logging and saving
     logging_steps: int = 100
     save_steps: int = 500
+    save_strategy: str = "steps"
     eval_steps: int = 500
     save_total_limit: int = 3
     
@@ -94,6 +95,7 @@ class ConfidenceTrainingConfig:
             max_steps=self.max_steps,
             logging_steps=self.logging_steps,
             save_steps=self.save_steps,
+            save_strategy=self.save_strategy,
             eval_steps=self.eval_steps,
             save_total_limit=self.save_total_limit,
             eval_strategy=self.eval_strategy,

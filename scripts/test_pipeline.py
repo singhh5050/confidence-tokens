@@ -75,11 +75,12 @@ def test_approach_a(model, tokenizer, conf_token_id):
         max_steps=5,  # Just 5 steps
         logging_steps=1,
         save_steps=1000,  # Don't save during test
+        save_strategy="no",  # Disable checkpoint saves to avoid optimizer state dumps
         eval_strategy="no",  # No eval for quick test
         report_to="none",
         bf16=torch.cuda.is_bf16_supported(),
         gradient_checkpointing=True,  # Memory optimization
-        optim="adamw_bnb_8bit",  # 8-bit optimizer
+        optim="paged_adamw_8bit",  # 8-bit optimizer
     )
     
     metrics = train_confidence_model(
@@ -119,11 +120,12 @@ def test_approach_b(model, tokenizer, conf_token_id):
         max_steps=5,  # Just 5 steps
         logging_steps=1,
         save_steps=1000,  # Don't save during test
+        save_strategy="no",  # Disable checkpoint saves to avoid optimizer state dumps
         eval_strategy="no",  # No eval for quick test
         report_to="none",
         bf16=torch.cuda.is_bf16_supported(),
         gradient_checkpointing=True,  # Memory optimization
-        optim="adamw_bnb_8bit",  # 8-bit optimizer
+        optim="paged_adamw_8bit",  # 8-bit optimizer
     )
     
     metrics = train_confidence_model(
