@@ -74,6 +74,9 @@ class ConfidenceTrainingConfig:
     
     def to_training_arguments(self) -> TrainingArguments:
         """Convert to HuggingFace TrainingArguments."""
+        # Only load best model if we're doing evaluation
+        load_best = self.eval_strategy != "no"
+        
         return TrainingArguments(
             output_dir=self.output_dir,
             per_device_train_batch_size=self.per_device_train_batch_size,
@@ -96,8 +99,8 @@ class ConfidenceTrainingConfig:
             dataloader_num_workers=self.dataloader_num_workers,
             seed=self.seed,
             remove_unused_columns=False,
-            load_best_model_at_end=True,
-            metric_for_best_model="eval_loss",
+            load_best_model_at_end=load_best,
+            metric_for_best_model="eval_loss" if load_best else None,
             greater_is_better=False,
         )
 

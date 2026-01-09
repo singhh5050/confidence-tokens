@@ -4,12 +4,14 @@ Quick end-to-end test for both Approach A and B.
 Run this on RunPod to verify everything works before submitting batch job.
 
 Usage:
-    python scripts/test_pipeline.py
+    python scripts/test_pipeline.py                    # Quick test with Qwen 0.6B
+    python scripts/test_pipeline.py --model olmo       # Full test with Olmo-3-7B-Think
     
-Expected: Both approaches complete without errors, ~2-5 min total.
+Expected: Both approaches complete without errors.
 """
 
 import sys
+import argparse
 from pathlib import Path
 
 # Add src to path
@@ -67,7 +69,8 @@ def test_approach_a(model, tokenizer, conf_token_id):
         num_train_epochs=1,
         max_steps=5,  # Just 5 steps
         logging_steps=1,
-        save_steps=100,  # Don't save
+        save_steps=1000,  # Don't save during test
+        eval_strategy="no",  # No eval for quick test
         report_to="none",
         bf16=torch.cuda.is_bf16_supported(),
     )
@@ -103,7 +106,8 @@ def test_approach_b(model, tokenizer, conf_token_id):
         num_train_epochs=1,
         max_steps=5,  # Just 5 steps
         logging_steps=1,
-        save_steps=100,  # Don't save
+        save_steps=1000,  # Don't save during test
+        eval_strategy="no",  # No eval for quick test
         report_to="none",
         bf16=torch.cuda.is_bf16_supported(),
     )
@@ -121,9 +125,25 @@ def test_approach_b(model, tokenizer, conf_token_id):
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Test confidence token pipeline")
+    parser.add_argument(
+        "--model", 
+        choices=["qwen", "olmo"],
+        default="qwen",
+        help="Model to test with: qwen (quick, 0.6B) or olmo (full, 7B)"
+    )
+    args = parser.parse_args()
+    
+    MODEL_MAP = {
+        "qwen": "Qwen/Qwen3-0.6B",
+        "olmo": "allenai/Olmo-3-7B-Think",
+    }
+    model_name = MODEL_MAP[args.model]
+    
     print("=" * 60)
     print("CONFIDENCE TOKEN PIPELINE TEST")
     print("=" * 60)
+    print(f"Model: {model_name}")
     print(f"PyTorch: {torch.__version__}")
     print(f"CUDA available: {torch.cuda.is_available()}")
     if torch.cuda.is_available():
@@ -135,10 +155,8 @@ def main():
     
     # Load model for remaining tests
     print("\n" + "=" * 60)
-    print("Loading model (Qwen/Qwen3-0.6B for quick testing)...")
+    print(f"Loading model ({model_name})...")
     print("=" * 60)
-    
-    model_name = "Qwen/Qwen3-0.6B"
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
