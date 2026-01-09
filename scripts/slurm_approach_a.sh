@@ -48,7 +48,7 @@ mkdir -p logs outputs
 nvidia-smi
 
 python scripts/train.py \
-    --model allenai/Olmo-3-7B-Think \
+    --model allenai/Olmo-3-7B-Think-SFT \
     --dataset "${DATASET}" \
     --epochs "${EPOCHS}" \
     --batch-size "${BATCH_SIZE}" \

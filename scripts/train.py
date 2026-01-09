@@ -59,8 +59,8 @@ Examples:
     parser.add_argument(
         "--model", "-m",
         type=str,
-        default="allenai/Olmo-3-7B-Think",
-        help="Model name (default: allenai/Olmo-3-7B-Think)"
+        default="allenai/Olmo-3-7B-Think-SFT",
+        help="Model name (default: allenai/Olmo-3-7B-Think-SFT)"
     )
     
     # Dataset arguments
@@ -112,8 +112,8 @@ Examples:
     parser.add_argument(
         "--max-length",
         type=int,
-        default=2048,
-        help="Max sequence length (default: 2048)"
+        default=4096,
+        help="Max sequence length (default: 4096)"
     )
     
     # Training approach

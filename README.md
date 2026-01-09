@@ -59,7 +59,7 @@ python scripts/train.py --max-samples 100 --epochs 1
 # Approach B: Supervised confidence training (recommended)
 python scripts/train.py --supervised --max-samples 100 --epochs 1
 
-# Full training with default model (Olmo-3-7B-Think)
+# Full training with default model (Olmo-3-7B-Think-SFT)
 python scripts/train.py --supervised --dataset mmlu_pro
 ```
 
@@ -71,8 +71,8 @@ python scripts/train.py --supervised --dataset mmlu_pro
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from src.tokenizer_utils import add_conf_token
 
-tokenizer = AutoTokenizer.from_pretrained("allenai/Olmo-3-7B-Think")
-model = AutoModelForCausalLM.from_pretrained("allenai/Olmo-3-7B-Think")
+tokenizer = AutoTokenizer.from_pretrained("allenai/Olmo-3-7B-Think-SFT")
+model = AutoModelForCausalLM.from_pretrained("allenai/Olmo-3-7B-Think-SFT")
 
 conf_token_id = add_conf_token(tokenizer, model)
 ```
@@ -120,7 +120,7 @@ train_confidence_model(model, tokenizer, train_data, config=config, conf_token_i
 
 ## Datasets
 
-All datasets contain Olmo-3-7B-Think generated responses with correctness labels.
+All datasets contain Olmo-3-7B-Think generated responses with correctness labels. We finetune using Olmo-3-7B-Think-SFT (the SFT version, not RL post-trained).
 
 | Dataset | Path |
 |---------|------|

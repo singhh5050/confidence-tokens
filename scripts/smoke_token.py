@@ -18,12 +18,12 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 from tokenizer_utils import add_conf_token, verify_conf_token
 
 
-def run_smoke_test(model_name: str = "allenai/Olmo-3-7B-Think"):
+def run_smoke_test(model_name: str = "allenai/Olmo-3-7B-Think-SFT"):
     """
     Run smoke test for confidence token addition.
     
     Args:
-        model_name: Name of the model to use for testing (default: allenai/Olmo-3-7B-Think)
+        model_name: Name of the model to use for testing (default: allenai/Olmo-3-7B-Think-SFT)
     """
     print("=" * 70)
     print("CONFIDENCE TOKEN SMOKE TEST")
@@ -139,8 +139,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--model",
         type=str,
-        default="allenai/Olmo-3-7B-Think",
-        help="Model name to use for testing (default: allenai/Olmo-3-7B-Think). "
+        default="allenai/Olmo-3-7B-Think-SFT",
+        help="Model name to use for testing (default: allenai/Olmo-3-7B-Think-SFT). "
              "Try 'Qwen/Qwen3-0.6B' for faster download (~600MB)."
     )
     

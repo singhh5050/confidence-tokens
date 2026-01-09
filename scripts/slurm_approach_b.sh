@@ -51,7 +51,7 @@ mkdir -p logs outputs
 nvidia-smi
 
 python scripts/train.py \
-    --model allenai/Olmo-3-7B-Think \
+    --model allenai/Olmo-3-7B-Think-SFT \
     --dataset "${DATASET}" \
     --supervised \
     --alpha "${ALPHA}" \

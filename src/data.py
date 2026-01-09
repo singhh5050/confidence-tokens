@@ -24,7 +24,7 @@ from transformers import PreTrainedTokenizer
 # =============================================================================
 
 # Default model to use for extracting responses and labels
-DEFAULT_MODEL = "allenai/Olmo-3-7B-Think"
+DEFAULT_MODEL = "allenai/Olmo-3-7B-Think-SFT"
 
 DATASET_CONFIGS = {
     "mmlu_pro": {
@@ -272,7 +272,7 @@ def prepare_multiple_datasets(
 def tokenize_for_training(
     examples: Dict[str, List],
     tokenizer: PreTrainedTokenizer,
-    max_length: int = 2048,
+    max_length: int = 4096,
 ) -> Dict[str, List]:
     """
     Tokenize examples for training and recompute CONF positions after tokenization.
@@ -313,7 +313,7 @@ def tokenize_for_training(
 def get_tokenized_dataset(
     dataset: Dataset,
     tokenizer: PreTrainedTokenizer,
-    max_length: int = 2048,
+    max_length: int = 4096,
     include_conf_fields: bool = True,
     drop_invalid_conf: bool = True,
 ) -> Dataset:

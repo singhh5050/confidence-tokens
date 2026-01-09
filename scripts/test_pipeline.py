@@ -159,7 +159,7 @@ def main():
     
     MODEL_MAP = {
         "qwen": "Qwen/Qwen3-0.6B",
-        "olmo": "allenai/Olmo-3-7B-Think",
+        "olmo": "allenai/Olmo-3-7B-Think-SFT",
     }
     model_name = MODEL_MAP[args.model]
     

@@ -23,12 +23,12 @@ from tokenizer_utils import add_conf_token
 from data import format_suffix_prompt, get_conf_token_position
 
 
-def run_forward_smoke_test(model_name: str = "allenai/Olmo-3-7B-Think"):
+def run_forward_smoke_test(model_name: str = "allenai/Olmo-3-7B-Think-SFT"):
     """
     Run smoke test for hidden state extraction and confidence head.
     
     Args:
-        model_name: Name of the model to use (default: allenai/Olmo-3-7B-Think)
+        model_name: Name of the model to use (default: allenai/Olmo-3-7B-Think-SFT)
     """
     print("=" * 70)
     print("CONFIDENCE TOKEN HIDDEN STATE EXTRACTION SMOKE TEST")
@@ -197,8 +197,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--model",
         type=str,
-        default="allenai/Olmo-3-7B-Think",
-        help="Model to use (default: allenai/Olmo-3-7B-Think)"
+        default="allenai/Olmo-3-7B-Think-SFT",
+        help="Model to use (default: allenai/Olmo-3-7B-Think-SFT)"
     )
     
     args = parser.parse_args()
