@@ -193,6 +193,11 @@ def main():
     )
     model.config.use_cache = False
     
+    # Fix generation config conflicts (Olmo has do_sample=False but temperature/top_p set)
+    if hasattr(model, 'generation_config'):
+        model.generation_config.temperature = None
+        model.generation_config.top_p = None
+    
     # Add confidence token
     conf_token_id = add_conf_token(tokenizer, model)
     print(f"✓ Model loaded, <|CONF|> token ID: {conf_token_id}")
@@ -229,6 +234,10 @@ def main():
         torch_dtype=torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16,
         device_map="auto",
     )
+    model.config.use_cache = False
+    if hasattr(model, 'generation_config'):
+        model.generation_config.temperature = None
+        model.generation_config.top_p = None
     conf_token_id = add_conf_token(tokenizer, model)
     
     # Test 3: Approach B

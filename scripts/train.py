@@ -225,6 +225,12 @@ Examples:
             sys.exit(1)
         raise
     
+    # Fix generation config conflicts (Olmo has do_sample=False but temperature/top_p set)
+    model.config.use_cache = False
+    if hasattr(model, 'generation_config'):
+        model.generation_config.temperature = None
+        model.generation_config.top_p = None
+    
     # Add confidence token
     print("\nAdding <|CONF|> token...")
     conf_token_id = add_conf_token(tokenizer, model)
