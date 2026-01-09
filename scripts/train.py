@@ -165,6 +165,17 @@ Examples:
     
     args = parser.parse_args()
     
+    # Determine dtype FIRST (before printing config)
+    bf16_supported = torch.cuda.is_available() and torch.cuda.is_bf16_supported()
+    if args.fp16:
+        dtype = torch.float16
+    elif args.bf16 and bf16_supported:
+        dtype = torch.bfloat16
+    elif args.bf16 and not bf16_supported:
+        dtype = torch.float16  # Will warn later
+    else:
+        dtype = torch.float32
+    
     # Print configuration
     approach = "B (Supervised)" if args.supervised else "A (SFT only)"
     
@@ -198,17 +209,9 @@ Examples:
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     
-    # Determine dtype
-    bf16_supported = torch.cuda.is_available() and torch.cuda.is_bf16_supported()
-    if args.fp16:
-        dtype = torch.float16
-    elif args.bf16 and bf16_supported:
-        dtype = torch.bfloat16
-    elif args.bf16 and not bf16_supported:
+    # Warn if bf16 was requested but not supported (dtype already set above)
+    if args.bf16 and not bf16_supported:
         print("⚠ bf16 requested but not supported on this hardware; falling back to fp16")
-        dtype = torch.float16
-    else:
-        dtype = torch.float32
     
     try:
         model = AutoModelForCausalLM.from_pretrained(

@@ -3,7 +3,8 @@
 #SBATCH --account=matx
 #SBATCH --partition=matx
 #SBATCH --nodes=1
-#SBATCH --gres=gpu:1
+#SBATCH --gres=gpu:l40s:1
+#SBATCH --exclude=matx-amd-1
 #SBATCH --cpus-per-task=10
 #SBATCH --mem=100G
 #SBATCH --time=12:00:00
@@ -48,7 +49,7 @@ export WANDB_PROJECT="${WANDB_PROJECT}"
 cd /matx/u/singhh/confidence-tokens
 
 mkdir -p logs outputs
-nvidia-smi
+nvidia-smi || echo "nvidia-smi not available"
 
 python scripts/train.py \
     --model allenai/Olmo-3-7B-Think-SFT \
