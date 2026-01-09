@@ -177,11 +177,13 @@ def main():
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     
+    torch_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
-        torch_dtype=torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16,
-        device_map="auto",
+        torch_dtype=torch_dtype,
     )
+    model.to("cuda")
+    model.config.use_cache = False
     
     # Add confidence token
     conf_token_id = add_conf_token(tokenizer, model)
