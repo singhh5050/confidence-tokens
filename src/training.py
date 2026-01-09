@@ -20,6 +20,8 @@ from transformers import (
     PreTrainedModel,
     PreTrainedTokenizer,
 )
+from transformers.trainer_pt_utils import get_parameter_names
+from transformers.trainer_utils import ALL_LAYERNORM_LAYERS
 from datasets import Dataset
 
 
@@ -115,6 +117,66 @@ class ConfidenceTrainingConfig:
 
 
 # =============================================================================
+# Optimizer helper
+# =============================================================================
+
+class SFTTrainer(Trainer):
+    """
+    Trainer subclass that force-enables bitsandbytes 8-bit optimizers when requested.
+    
+    HuggingFace will silently fall back to torch.optim.AdamW if bitsandbytes is
+    unavailable. We override create_optimizer to:
+      1) Detect the 8-bit request (optim contains "8bit")
+      2) Import and construct the bnb optimizer explicitly
+      3) Raise a clear error if bitsandbytes is missing
+    """
+
+    def create_optimizer(self):
+        if self.optimizer is not None:
+            return
+
+        use_8bit = "8bit" in str(self.args.optim).lower()
+
+        # Build parameter groups (match HF Trainer logic)
+        decay_parameters = get_parameter_names(self.model, ALL_LAYERNORM_LAYERS)
+        decay_parameters = [name for name in decay_parameters if "bias" not in name]
+        optimizer_grouped_parameters = [
+            {
+                "params": [p for n, p in self.model.named_parameters() if n in decay_parameters],
+                "weight_decay": self.args.weight_decay,
+            },
+            {
+                "params": [p for n, p in self.model.named_parameters() if n not in decay_parameters],
+                "weight_decay": 0.0,
+            },
+        ]
+
+        if use_8bit:
+            try:
+                import bitsandbytes as bnb  # type: ignore
+            except Exception as exc:  # pragma: no cover - environment dependent
+                raise RuntimeError(
+                    "Requested 8-bit optimizer but bitsandbytes is not available. "
+                    "Install with `pip install bitsandbytes` and ensure CUDA is present."
+                ) from exc
+
+            if "paged" in str(self.args.optim).lower():
+                optimizer_cls = bnb.optim.PagedAdamW8bit
+            else:
+                optimizer_cls = bnb.optim.AdamW8bit
+            optimizer_kwargs = {
+                "lr": self.args.learning_rate,
+                "betas": (self.args.adam_beta1, self.args.adam_beta2),
+                "eps": self.args.adam_epsilon,
+                "weight_decay": self.args.weight_decay,
+            }
+            self.optimizer = optimizer_cls(optimizer_grouped_parameters, **optimizer_kwargs)
+        else:
+            # Defer to HF for non-8bit paths
+            super().create_optimizer()
+
+
+# =============================================================================
 # Approach B: Supervised Confidence Trainer
 # =============================================================================
 
@@ -149,7 +211,7 @@ class ConfidenceDataCollator:
         return batch
 
 
-class SuffixConfidenceTrainer(Trainer):
+class SuffixConfidenceTrainer(SFTTrainer):
     """
     Custom trainer that adds supervised loss on the <|CONF|> token's hidden state.
     
@@ -319,7 +381,7 @@ def create_sft_trainer(
         mlm=False,
     )
     
-    trainer = Trainer(
+    trainer = SFTTrainer(
         model=model,
         args=training_args,
         train_dataset=train_dataset,
