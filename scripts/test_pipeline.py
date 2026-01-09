@@ -51,7 +51,7 @@ def test_data_loading():
     return True
 
 
-def test_approach_a(model, tokenizer, conf_token_id):
+def test_approach_a(model, tokenizer, conf_token_id, override_config=None):
     """Test Approach A: SFT only."""
     print("\n" + "=" * 60)
     print("TEST 2: Approach A (SFT Only)")
@@ -66,7 +66,7 @@ def test_approach_a(model, tokenizer, conf_token_id):
         include_conf_fields=False,
     )
     
-    config = ConfidenceTrainingConfig(
+    base_config = ConfidenceTrainingConfig(
         output_dir="./test_output_a",
         supervised=False,
         per_device_train_batch_size=1,  # Small batch for 7B models
@@ -74,14 +74,15 @@ def test_approach_a(model, tokenizer, conf_token_id):
         num_train_epochs=1,
         max_steps=5,  # Just 5 steps
         logging_steps=1,
-        save_steps=1000,  # Don't save during test
-        save_strategy="no",  # Disable checkpoint saves to avoid optimizer state dumps
+        save_steps=1000,  # Overridden in main when --enable-save is set
+        save_strategy="no",  # Overridden in main when --enable-save is set
         eval_strategy="no",  # No eval for quick test
         report_to="none",
         bf16=torch.cuda.is_bf16_supported(),
         gradient_checkpointing=True,  # Memory optimization
         optim="paged_adamw_8bit",  # 8-bit optimizer
     )
+    config = override_config or base_config
     
     metrics = train_confidence_model(
         model=model,
@@ -110,7 +111,7 @@ def test_approach_b(model, tokenizer, conf_token_id):
         include_conf_fields=True,
     )
     
-    config = ConfidenceTrainingConfig(
+    base_config = ConfidenceTrainingConfig(
         output_dir="./test_output_b",
         supervised=True,
         confidence_loss_weight=0.3,
@@ -119,14 +120,15 @@ def test_approach_b(model, tokenizer, conf_token_id):
         num_train_epochs=1,
         max_steps=5,  # Just 5 steps
         logging_steps=1,
-        save_steps=1000,  # Don't save during test
-        save_strategy="no",  # Disable checkpoint saves to avoid optimizer state dumps
+        save_steps=1000,  # Overridden in main when --enable-save is set
+        save_strategy="no",  # Overridden in main when --enable-save is set
         eval_strategy="no",  # No eval for quick test
         report_to="none",
         bf16=torch.cuda.is_bf16_supported(),
         gradient_checkpointing=True,  # Memory optimization
         optim="paged_adamw_8bit",  # 8-bit optimizer
     )
+    config = override_config or base_config
     
     metrics = train_confidence_model(
         model=model,
@@ -148,6 +150,11 @@ def main():
         default="qwen",
         help="Model to test with: qwen (quick, 0.6B) or olmo (full, 7B)"
     )
+    parser.add_argument(
+        "--enable-save",
+        action="store_true",
+        help="Enable checkpoint saving in the smoke test to exercise optimizer state saves",
+    )
     args = parser.parse_args()
     
     MODEL_MAP = {
@@ -165,6 +172,7 @@ def main():
     if torch.cuda.is_available():
         print(f"GPU: {torch.cuda.get_device_name(0)}")
         print(f"VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
+    print(f"Checkpoint saving enabled: {args.enable_save}")
     
     # Test 1: Data loading
     test_data_loading()
@@ -189,8 +197,30 @@ def main():
     conf_token_id = add_conf_token(tokenizer, model)
     print(f"✓ Model loaded, <|CONF|> token ID: {conf_token_id}")
     
+    # Save settings for smoke test
+    save_strategy = "steps" if args.enable_save else "no"
+    save_steps = 5 if args.enable_save else 1000
+    
     # Test 2: Approach A
-    test_approach_a(model, tokenizer, conf_token_id)
+    # Override save_strategy/save_steps dynamically
+    test_conf = ConfidenceTrainingConfig(
+        output_dir="./test_output_a",
+        supervised=False,
+        per_device_train_batch_size=1,
+        gradient_accumulation_steps=1,
+        num_train_epochs=1,
+        max_steps=5,
+        logging_steps=1,
+        save_steps=save_steps,
+        save_strategy=save_strategy,
+        save_total_limit=1,
+        eval_strategy="no",
+        report_to="none",
+        bf16=torch.cuda.is_bf16_supported(),
+        gradient_checkpointing=True,
+        optim="paged_adamw_8bit",
+    )
+    test_approach_a(model, tokenizer, conf_token_id, override_config=test_conf)
     
     # Reload model (training modifies it)
     print("\nReloading fresh model for Approach B test...")
@@ -202,7 +232,25 @@ def main():
     conf_token_id = add_conf_token(tokenizer, model)
     
     # Test 3: Approach B
-    test_approach_b(model, tokenizer, conf_token_id)
+    test_conf_b = ConfidenceTrainingConfig(
+        output_dir="./test_output_b",
+        supervised=True,
+        confidence_loss_weight=0.3,
+        per_device_train_batch_size=1,
+        gradient_accumulation_steps=1,
+        num_train_epochs=1,
+        max_steps=5,
+        logging_steps=1,
+        save_steps=save_steps,
+        save_strategy=save_strategy,
+        save_total_limit=1,
+        eval_strategy="no",
+        report_to="none",
+        bf16=torch.cuda.is_bf16_supported(),
+        gradient_checkpointing=True,
+        optim="paged_adamw_8bit",
+    )
+    test_approach_b(model, tokenizer, conf_token_id, override_config=test_conf_b)
     
     # Cleanup
     import shutil
