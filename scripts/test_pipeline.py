@@ -96,7 +96,7 @@ def test_approach_a(model, tokenizer, conf_token_id, override_config=None):
     return True
 
 
-def test_approach_b(model, tokenizer, conf_token_id):
+def test_approach_b(model, tokenizer, conf_token_id, override_config=None):
     """Test Approach B: Supervised confidence."""
     print("\n" + "=" * 60)
     print("TEST 3: Approach B (Supervised Confidence)")
@@ -189,8 +189,8 @@ def main():
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
         torch_dtype=torch_dtype,
+        device_map="auto",  # Let Accelerate handle placement (required for 8-bit optim)
     )
-    model.to("cuda")
     model.config.use_cache = False
     
     # Add confidence token
