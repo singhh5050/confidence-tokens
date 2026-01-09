@@ -64,8 +64,9 @@ class ConfidenceTrainingConfig:
     bf16: bool = True
     fp16: bool = False
     
-    # Memory optimization
-    gradient_checkpointing: bool = True  # Essential for 7B models on <80GB GPUs
+    # Memory optimization (CRITICAL for 7B models on single GPU)
+    gradient_checkpointing: bool = True  # Recompute activations to save memory
+    optim: str = "adamw_bnb_8bit"  # 8-bit optimizer saves ~75% optimizer memory
     
     # Reporting
     report_to: str = "wandb"
@@ -98,6 +99,7 @@ class ConfidenceTrainingConfig:
             bf16=self.bf16,
             fp16=self.fp16,
             gradient_checkpointing=self.gradient_checkpointing,
+            optim=self.optim,
             report_to=self.report_to,
             run_name=self.run_name,
             dataloader_num_workers=self.dataloader_num_workers,
@@ -180,25 +182,43 @@ class SuffixConfidenceTrainer(Trainer):
         # Extract custom labels (pop so they don't go to model forward)
         confidence_labels = inputs.pop("confidence_labels").float()  # (batch,)
         conf_token_positions = inputs.pop("conf_token_positions")    # (batch,)
+        labels = inputs.get("labels")
         
         # Ensure confidence head is on correct device
-        if self.confidence_head.weight.device != model.device:
-            self.confidence_head = self.confidence_head.to(model.device)
+        device = next(model.parameters()).device
+        if self.confidence_head.weight.device != device:
+            self.confidence_head = self.confidence_head.to(device)
         
-        # Standard forward pass with hidden states
-        outputs = model(**inputs, output_hidden_states=True)
-        lm_loss = outputs.loss
+        # IMPORTANT: Disable cache for gradient checkpointing compatibility
+        model.config.use_cache = False
         
-        # Extract hidden states at <|CONF|> positions
-        last_hidden = outputs.hidden_states[-1]  # (batch, seq_len, hidden)
+        # Memory-efficient forward: get last_hidden_state directly from base model
+        # This avoids storing ALL layer hidden states (massive memory savings)
+        base_model = model.model  # For CausalLM models, .model is the base transformer
+        
+        base_outputs = base_model(
+            input_ids=inputs["input_ids"],
+            attention_mask=inputs.get("attention_mask"),
+            return_dict=True,
+        )
+        last_hidden = base_outputs.last_hidden_state  # (batch, seq_len, hidden)
+        
+        # Compute LM logits and loss manually
+        logits = model.lm_head(last_hidden)  # (batch, seq_len, vocab)
+        
+        # Shift for autoregressive LM loss
+        shift_logits = logits[:, :-1, :].contiguous()
+        shift_labels = labels[:, 1:].contiguous()
+        lm_loss = F.cross_entropy(
+            shift_logits.view(-1, shift_logits.size(-1)),
+            shift_labels.view(-1),
+            ignore_index=-100,
+        )
+        
+        # Vectorized gather of CONF hidden states (no loop needed)
         batch_size = last_hidden.size(0)
-        
-        # Gather hidden states at the <|CONF|> position for each example
-        conf_hiddens = []
-        for i in range(batch_size):
-            pos = conf_token_positions[i].item()
-            conf_hiddens.append(last_hidden[i, pos, :])
-        conf_hidden = torch.stack(conf_hiddens)  # (batch, hidden_size)
+        batch_idx = torch.arange(batch_size, device=device)
+        conf_hidden = last_hidden[batch_idx, conf_token_positions.to(device)]  # (batch, hidden)
         
         # Predict confidence from hidden state
         conf_logits = self.confidence_head(conf_hidden).squeeze(-1)  # (batch,)
@@ -206,7 +226,7 @@ class SuffixConfidenceTrainer(Trainer):
         # Confidence supervision loss (Binary Cross-Entropy)
         conf_loss = F.binary_cross_entropy_with_logits(
             conf_logits, 
-            confidence_labels.to(conf_logits.device)
+            confidence_labels.to(device)
         )
         
         # Combined loss: (1-α) * LM + α * Confidence
@@ -217,11 +237,16 @@ class SuffixConfidenceTrainer(Trainer):
             self.log({
                 "lm_loss": lm_loss.item(),
                 "conf_loss": conf_loss.item(),
-                "conf_accuracy": ((conf_logits > 0).float() == confidence_labels.to(conf_logits.device)).float().mean().item(),
+                "conf_accuracy": ((conf_logits > 0).float() == confidence_labels.to(device)).float().mean().item(),
             })
         
         if return_outputs:
-            return total_loss, outputs
+            # Create minimal outputs object for compatibility
+            class MinimalOutputs:
+                def __init__(self, loss, logits):
+                    self.loss = loss
+                    self.logits = logits
+            return total_loss, MinimalOutputs(total_loss, logits)
         return total_loss
     
     def save_model(self, output_dir: Optional[str] = None, _internal_call: bool = False):

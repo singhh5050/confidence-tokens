@@ -64,7 +64,7 @@ def test_approach_a(model, tokenizer, conf_token_id):
     config = ConfidenceTrainingConfig(
         output_dir="./test_output_a",
         supervised=False,
-        per_device_train_batch_size=1,  # Small batch for memory
+        per_device_train_batch_size=1,  # Small batch for 7B models
         gradient_accumulation_steps=1,
         num_train_epochs=1,
         max_steps=5,  # Just 5 steps
@@ -73,7 +73,8 @@ def test_approach_a(model, tokenizer, conf_token_id):
         eval_strategy="no",  # No eval for quick test
         report_to="none",
         bf16=torch.cuda.is_bf16_supported(),
-        gradient_checkpointing=True,  # Essential for 7B models
+        gradient_checkpointing=True,  # Memory optimization
+        optim="adamw_bnb_8bit",  # 8-bit optimizer
     )
     
     metrics = train_confidence_model(
@@ -102,7 +103,7 @@ def test_approach_b(model, tokenizer, conf_token_id):
         output_dir="./test_output_b",
         supervised=True,
         confidence_loss_weight=0.3,
-        per_device_train_batch_size=1,  # Small batch for memory
+        per_device_train_batch_size=1,  # Small batch for 7B models
         gradient_accumulation_steps=1,
         num_train_epochs=1,
         max_steps=5,  # Just 5 steps
@@ -111,7 +112,8 @@ def test_approach_b(model, tokenizer, conf_token_id):
         eval_strategy="no",  # No eval for quick test
         report_to="none",
         bf16=torch.cuda.is_bf16_supported(),
-        gradient_checkpointing=True,  # Essential for 7B models
+        gradient_checkpointing=True,  # Memory optimization
+        optim="adamw_bnb_8bit",  # 8-bit optimizer
     )
     
     metrics = train_confidence_model(
