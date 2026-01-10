@@ -284,6 +284,9 @@ Examples:
     print("✓ Tokenization complete")
     
     # Configure training
+    # Set eval_strategy based on whether we have an eval dataset
+    eval_strat = "steps" if eval_dataset is not None else "no"
+    
     config = ConfidenceTrainingConfig(
         output_dir=args.output_dir,
         supervised=args.supervised,
@@ -294,6 +297,7 @@ Examples:
         num_train_epochs=args.epochs,
         bf16=args.bf16 and not args.fp16,
         fp16=args.fp16,
+        eval_strategy=eval_strat,
         report_to="wandb" if args.wandb else "none",
         run_name=args.run_name,
     )
