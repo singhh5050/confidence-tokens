@@ -23,8 +23,8 @@ set -e
 
 DATASET="mmlu_pro"
 EPOCHS=3
-BATCH_SIZE=4
-GRAD_ACCUM=8
+BATCH_SIZE=1
+GRAD_ACCUM=32
 ALPHA=0.3
 WANDB_PROJECT="confidence-tokens"
 
