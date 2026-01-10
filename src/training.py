@@ -188,10 +188,10 @@ class ConfidenceDataCollator:
     
     def __init__(self, tokenizer: PreTrainedTokenizer, mlm: bool = False):
         self.tokenizer = tokenizer
-        self.lm_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=mlm)
+        self.mlm = mlm
     
     def __call__(self, features: List[Dict]) -> Dict[str, torch.Tensor]:
-        # Extract confidence-specific fields before LM collation
+        # Extract confidence-specific fields before padding
         confidence_labels = torch.tensor(
             [f.pop("confidence_label") for f in features], 
             dtype=torch.float
@@ -201,12 +201,38 @@ class ConfidenceDataCollator:
             dtype=torch.long
         )
         
-        # Standard LM collation for input_ids, attention_mask, labels
-        batch = self.lm_collator(features)
+        # Manually pad input_ids and labels to same length
+        # Get max length in batch
+        max_len = max(len(f["input_ids"]) for f in features)
         
-        # Add back confidence fields
-        batch["confidence_labels"] = confidence_labels
-        batch["conf_token_positions"] = conf_token_positions
+        input_ids_padded = []
+        labels_padded = []
+        attention_masks = []
+        
+        pad_token_id = self.tokenizer.pad_token_id
+        if pad_token_id is None:
+            pad_token_id = self.tokenizer.eos_token_id
+        
+        for f in features:
+            seq_len = len(f["input_ids"])
+            padding_len = max_len - seq_len
+            
+            # Pad input_ids
+            input_ids_padded.append(f["input_ids"] + [pad_token_id] * padding_len)
+            
+            # Pad labels with -100 (ignored in loss)
+            labels_padded.append(f["labels"] + [-100] * padding_len)
+            
+            # Create attention mask
+            attention_masks.append([1] * seq_len + [0] * padding_len)
+        
+        batch = {
+            "input_ids": torch.tensor(input_ids_padded, dtype=torch.long),
+            "labels": torch.tensor(labels_padded, dtype=torch.long),
+            "attention_mask": torch.tensor(attention_masks, dtype=torch.long),
+            "confidence_labels": confidence_labels,
+            "conf_token_positions": conf_token_positions,
+        }
         
         return batch
 
@@ -380,17 +406,34 @@ def create_sft_trainer(
     
     training_args = config.to_training_arguments()
     
-    data_collator = DataCollatorForLanguageModeling(
-        tokenizer=tokenizer,
-        mlm=False,
-    )
+    # Simple padding collator for LM (handles variable length sequences)
+    def lm_collator(features: List[Dict]) -> Dict[str, torch.Tensor]:
+        max_len = max(len(f["input_ids"]) for f in features)
+        pad_token_id = tokenizer.pad_token_id or tokenizer.eos_token_id
+        
+        input_ids_padded = []
+        labels_padded = []
+        attention_masks = []
+        
+        for f in features:
+            seq_len = len(f["input_ids"])
+            padding_len = max_len - seq_len
+            input_ids_padded.append(f["input_ids"] + [pad_token_id] * padding_len)
+            labels_padded.append(f["labels"] + [-100] * padding_len)
+            attention_masks.append([1] * seq_len + [0] * padding_len)
+        
+        return {
+            "input_ids": torch.tensor(input_ids_padded, dtype=torch.long),
+            "labels": torch.tensor(labels_padded, dtype=torch.long),
+            "attention_mask": torch.tensor(attention_masks, dtype=torch.long),
+        }
     
     trainer = SFTTrainer(
         model=model,
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
-        data_collator=data_collator,
+        data_collator=lm_collator,
         tokenizer=tokenizer,
     )
     

@@ -61,7 +61,6 @@ python scripts/train.py \
     --grad-accum "${GRAD_ACCUM}" \
     --output-dir "${OUTPUT_DIR}" \
     --run-name "${RUN_NAME}" \
-    --wandb
 
 echo "============================================"
 echo "APPROACH B COMPLETE"
