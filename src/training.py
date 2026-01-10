@@ -237,11 +237,14 @@ class SuffixConfidenceTrainer(SFTTrainer):
         
         # Linear probe to predict confidence from hidden state
         hidden_size = self.model.config.hidden_size
-        self.confidence_head = nn.Linear(hidden_size, 1)
+        
+        # Create with same dtype as model to avoid dtype mismatch
+        model_dtype = next(self.model.parameters()).dtype
+        self.confidence_head = nn.Linear(hidden_size, 1, dtype=model_dtype)
         
         # Move to same device as model
-        if hasattr(self.model, 'device'):
-            self.confidence_head = self.confidence_head.to(self.model.device)
+        device = next(self.model.parameters()).device
+        self.confidence_head = self.confidence_head.to(device)
     
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         # Extract custom labels (pop so they don't go to model forward)
@@ -249,10 +252,11 @@ class SuffixConfidenceTrainer(SFTTrainer):
         conf_token_positions = inputs.pop("conf_token_positions")    # (batch,)
         labels = inputs.get("labels")
         
-        # Ensure confidence head is on correct device
+        # Ensure confidence head is on correct device and dtype
         device = next(model.parameters()).device
-        if self.confidence_head.weight.device != device:
-            self.confidence_head = self.confidence_head.to(device)
+        dtype = next(model.parameters()).dtype
+        if self.confidence_head.weight.device != device or self.confidence_head.weight.dtype != dtype:
+            self.confidence_head = self.confidence_head.to(device=device, dtype=dtype)
         
         # IMPORTANT: Disable cache for gradient checkpointing compatibility
         model.config.use_cache = False
