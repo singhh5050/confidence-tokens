@@ -105,11 +105,9 @@ def format_suffix_prompt(question: str, answer: str) -> str:
     Format prompt with <|CONF|> in suffix position (after question, before answer).
     
     Format:
-        Problem to solve: {question}
-        Confidence: <|CONF|>
-        Answer: {answer}
+        {question} <|CONF|> {answer}
     """
-    return f"Problem to solve: {question}\nConfidence: <|CONF|>\nAnswer: {answer}"
+    return f"{question} <|CONF|> {answer}"
 
 
 def format_suffix_prompt_inference(question: str) -> str:
@@ -117,16 +115,17 @@ def format_suffix_prompt_inference(question: str) -> str:
     Format prompt for inference (no answer yet).
     
     Format:
-        Problem to solve: {question}
-        Confidence: <|CONF|>
-        Answer:
+        {question} <|CONF|>
     """
-    return f"Problem to solve: {question}\nConfidence: <|CONF|>\nAnswer:"
+    return f"{question} <|CONF|>"
 
 
 def get_conf_token_position(question: str, tokenizer: PreTrainedTokenizer) -> int:
     """
     Find the position of <|CONF|> token in the formatted prompt.
+    
+    Format: {question} <|CONF|> ...
+    Position is right after the question and space.
     
     Args:
         question: The question text
@@ -135,7 +134,7 @@ def get_conf_token_position(question: str, tokenizer: PreTrainedTokenizer) -> in
     Returns:
         Position (0-indexed) of the <|CONF|> token
     """
-    prefix = f"Problem to solve: {question}\nConfidence: "
+    prefix = f"{question} "
     prefix_tokens = tokenizer.encode(prefix, add_special_tokens=False)
     return len(prefix_tokens)
 
