@@ -1,0 +1,48 @@
+#!/bin/bash
+#SBATCH --job-name=A-post
+#SBATCH --account=matx
+#SBATCH --partition=matx
+#SBATCH --nodes=1
+#SBATCH --gres=gpu:l40s:1
+#SBATCH --exclude=matx-amd-1
+#SBATCH --cpus-per-task=10
+#SBATCH --mem=100G
+#SBATCH --time=24:00:00
+#SBATCH --output=/matx/u/singhh/confidence-tokens/logs/a_posterior_%j.out
+#SBATCH --error=/matx/u/singhh/confidence-tokens/logs/a_posterior_%j.err
+
+# Approach A + Posterior: {Q} {A} <|CONF|>
+# CONF sees both question AND answer as prior
+
+set -e
+
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+RUN_NAME="A_posterior_mmlu_${TIMESTAMP}"
+OUTPUT_DIR="/matx/u/singhh/confidence-tokens/outputs/${RUN_NAME}"
+
+echo "============================================"
+echo "APPROACH A + POSTERIOR"
+echo "Format: {Q} {A} <|CONF|>"
+echo "============================================"
+echo "Job ID: $SLURM_JOB_ID | Node: $SLURM_NODELIST"
+echo "Output: ${OUTPUT_DIR}"
+echo "============================================"
+
+source /matx/u/singhh/venvs/conf/bin/activate
+export HF_HOME="/matx/u/singhh/huggingface"
+cd /matx/u/singhh/confidence-tokens
+mkdir -p logs outputs
+nvidia-smi || echo "nvidia-smi not available"
+
+python scripts/train.py \
+    --model allenai/Olmo-3-7B-Think-SFT \
+    --dataset mmlu_pro \
+    --conf-position posterior \
+    --epochs 3 \
+    --batch-size 1 \
+    --grad-accum 32 \
+    --output-dir "${OUTPUT_DIR}" \
+    --run-name "${RUN_NAME}"
+
+echo "✓ COMPLETE: ${OUTPUT_DIR}"
+

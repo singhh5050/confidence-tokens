@@ -301,6 +301,11 @@ Examples:
     # Set eval_strategy based on whether we have an eval dataset
     eval_strat = "steps" if eval_dataset is not None else "no"
     
+    # Determine actual precision for TrainingArguments
+    # Must match what we actually loaded the model with
+    use_bf16 = args.bf16 and not args.fp16 and bf16_supported
+    use_fp16 = args.fp16 or (args.bf16 and not bf16_supported)
+    
     config = ConfidenceTrainingConfig(
         output_dir=args.output_dir,
         supervised=args.supervised,
@@ -309,8 +314,8 @@ Examples:
         gradient_accumulation_steps=args.grad_accum,
         learning_rate=args.lr,
         num_train_epochs=args.epochs,
-        bf16=args.bf16 and not args.fp16,
-        fp16=args.fp16,
+        bf16=use_bf16,
+        fp16=use_fp16,
         eval_strategy=eval_strat,
         report_to="wandb" if args.wandb else "none",
         run_name=args.run_name,
