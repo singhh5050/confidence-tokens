@@ -28,7 +28,7 @@ import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
 from tokenizer_utils import add_conf_token
-from data import prepare_suffix_confidence_dataset, get_tokenized_dataset
+from data import prepare_confidence_dataset, get_tokenized_dataset, CONF_POSITIONS
 from training import ConfidenceTrainingConfig, train_confidence_model
 
 
@@ -128,6 +128,13 @@ Examples:
         default=0.3,
         help="Confidence loss weight for Approach B: loss = (1-α)*LM + α*Conf (default: 0.3)"
     )
+    parser.add_argument(
+        "--conf-position",
+        type=str,
+        default="suffix",
+        choices=CONF_POSITIONS,
+        help="Where to place <|CONF|> token: 'suffix' = {Q} <|CONF|> {A}, 'posterior' = {Q} {A} <|CONF|> (default: suffix)"
+    )
     
     # Precision
     parser.add_argument(
@@ -178,6 +185,10 @@ Examples:
     
     # Print configuration
     approach = "B (Supervised)" if args.supervised else "A (SFT only)"
+    conf_pos = args.conf_position
+    
+    # Format descriptions for conf position
+    pos_fmt = "{Q} <|CONF|> {A}" if conf_pos == "suffix" else "{Q} {A} <|CONF|>"
     
     print("=" * 70)
     print("CONFIDENCE TOKEN TRAINING")
@@ -191,6 +202,7 @@ Examples:
     print(f"  Batch size: {args.batch_size} x {args.grad_accum} (effective: {args.batch_size * args.grad_accum})")
     print(f"  Learning rate: {args.lr}")
     print(f"  Max samples: {args.max_samples or 'all'}")
+    print(f"  CONF position: {conf_pos} → {pos_fmt}")
     print(f"  bf16 supported: {bf16_supported}")
     print(f"  Precision: {'bf16' if dtype == torch.bfloat16 else ('fp16' if dtype == torch.float16 else 'fp32')}")
     print(f"  Logging: {'wandb' if args.wandb else 'none'}")
@@ -244,11 +256,12 @@ Examples:
     print(f"Preparing {args.dataset} dataset...")
     print("-" * 70)
     
-    train_dataset = prepare_suffix_confidence_dataset(
+    train_dataset = prepare_confidence_dataset(
         args.dataset, 
         tokenizer, 
         "train",
-        args.max_samples
+        args.max_samples,
+        conf_position=args.conf_position,
     )
     print(f"✓ Train dataset: {len(train_dataset)} examples")
     
@@ -256,11 +269,12 @@ Examples:
     eval_dataset = None
     try:
         eval_max = args.max_samples // 10 if args.max_samples else 1000
-        eval_dataset = prepare_suffix_confidence_dataset(
+        eval_dataset = prepare_confidence_dataset(
             args.dataset,
             tokenizer,
             "test",
-            eval_max
+            eval_max,
+            conf_position=args.conf_position,
         )
         print(f"✓ Eval dataset: {len(eval_dataset)} examples")
     except Exception as e:

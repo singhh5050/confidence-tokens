@@ -24,10 +24,11 @@ DATASET="mmlu_pro"
 EPOCHS=3
 BATCH_SIZE=1
 GRAD_ACCUM=32
+CONF_POSITION="posterior"  # "suffix" = {Q} <|CONF|> {A}, "posterior" = {Q} {A} <|CONF|>
 WANDB_PROJECT="confidence-tokens"
 
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-RUN_NAME="approach_a_${DATASET}_${TIMESTAMP}"
+RUN_NAME="approach_a_${CONF_POSITION}_${DATASET}_${TIMESTAMP}"
 OUTPUT_DIR="/matx/u/singhh/confidence-tokens/outputs/${RUN_NAME}"
 
 echo "============================================"
@@ -37,6 +38,7 @@ echo "Job ID:      $SLURM_JOB_ID"
 echo "Node:        $SLURM_NODELIST"
 echo "Start:       $(date)"
 echo "Dataset:     ${DATASET}"
+echo "CONF pos:    ${CONF_POSITION}"
 echo "Output:      ${OUTPUT_DIR}"
 echo "============================================"
 
@@ -51,6 +53,7 @@ nvidia-smi || echo "nvidia-smi not available"
 python scripts/train.py \
     --model allenai/Olmo-3-7B-Think-SFT \
     --dataset "${DATASET}" \
+    --conf-position "${CONF_POSITION}" \
     --epochs "${EPOCHS}" \
     --batch-size "${BATCH_SIZE}" \
     --grad-accum "${GRAD_ACCUM}" \

@@ -100,6 +100,10 @@ def extract_from_nested(example: Dict, model_name: str = DEFAULT_MODEL) -> Dict:
 # Prompt Formatting
 # =============================================================================
 
+# Available CONF token positions
+CONF_POSITIONS = ["suffix", "posterior"]
+
+
 def format_suffix_prompt(question: str, answer: str) -> str:
     """
     Format prompt with <|CONF|> in suffix position (after question, before answer).
@@ -110,9 +114,44 @@ def format_suffix_prompt(question: str, answer: str) -> str:
     return f"{question} <|CONF|> {answer}"
 
 
+def format_posterior_prompt(question: str, answer: str) -> str:
+    """
+    Format prompt with <|CONF|> in posterior position (after question AND answer).
+    
+    This gives the CONF token access to both question and answer as prior context,
+    which may help encode correctness information better.
+    
+    Format:
+        {question} {answer} <|CONF|>
+    """
+    return f"{question} {answer} <|CONF|>"
+
+
+def format_prompt(question: str, answer: str, conf_position: str = "suffix") -> str:
+    """
+    Format prompt with <|CONF|> token at specified position.
+    
+    Args:
+        question: The question text
+        answer: The answer text
+        conf_position: Where to place <|CONF|>
+            - "suffix": {question} <|CONF|> {answer}
+            - "posterior": {question} {answer} <|CONF|>
+    
+    Returns:
+        Formatted prompt string
+    """
+    if conf_position == "suffix":
+        return format_suffix_prompt(question, answer)
+    elif conf_position == "posterior":
+        return format_posterior_prompt(question, answer)
+    else:
+        raise ValueError(f"Unknown conf_position: {conf_position}. Choose from: {CONF_POSITIONS}")
+
+
 def format_suffix_prompt_inference(question: str) -> str:
     """
-    Format prompt for inference (no answer yet).
+    Format prompt for inference (no answer yet) - suffix position.
     
     Format:
         {question} <|CONF|>
@@ -120,39 +159,72 @@ def format_suffix_prompt_inference(question: str) -> str:
     return f"{question} <|CONF|>"
 
 
-def get_conf_token_position(question: str, tokenizer: PreTrainedTokenizer) -> int:
+def format_posterior_prompt_inference(question: str, answer: str) -> str:
     """
-    Find the position of <|CONF|> token in the formatted prompt.
+    Format prompt for inference - posterior position (needs answer to compute CONF position).
     
-    Format: {question} <|CONF|> ...
-    Position is right after the question and space.
+    Format:
+        {question} {answer} <|CONF|>
+    """
+    return f"{question} {answer} <|CONF|>"
+
+
+def format_prompt_inference(question: str, answer: str = "", conf_position: str = "suffix") -> str:
+    """
+    Format prompt for inference with <|CONF|> token at specified position.
     
     Args:
         question: The question text
+        answer: The answer text (required for posterior, optional for suffix)
+        conf_position: Where to place <|CONF|>
+    
+    Returns:
+        Formatted prompt string for inference
+    """
+    if conf_position == "suffix":
+        return format_suffix_prompt_inference(question)
+    elif conf_position == "posterior":
+        return format_posterior_prompt_inference(question, answer)
+    else:
+        raise ValueError(f"Unknown conf_position: {conf_position}. Choose from: {CONF_POSITIONS}")
+
+
+def get_conf_token_position(text: str, tokenizer: PreTrainedTokenizer) -> int:
+    """
+    Find the position of <|CONF|> token in any formatted text.
+    
+    Works for both suffix and posterior positions by scanning for the token.
+    
+    Args:
+        text: The formatted prompt containing <|CONF|>
         tokenizer: Tokenizer with <|CONF|> added
         
     Returns:
-        Position (0-indexed) of the <|CONF|> token
+        Position (0-indexed) of the <|CONF|> token, or -1 if not found
     """
-    prefix = f"{question} "
-    prefix_tokens = tokenizer.encode(prefix, add_special_tokens=False)
-    return len(prefix_tokens)
+    tokens = tokenizer.encode(text, add_special_tokens=False)
+    conf_token_id = tokenizer.convert_tokens_to_ids("<|CONF|>")
+    
+    if conf_token_id in tokens:
+        return tokens.index(conf_token_id)
+    return -1
 
 
 # =============================================================================
 # Dataset Preparation
 # =============================================================================
 
-def prepare_suffix_confidence_dataset(
+def prepare_confidence_dataset(
     dataset_name: str,
     tokenizer: PreTrainedTokenizer,
     split: str = "train",
     max_samples: Optional[int] = None,
     model_name: str = DEFAULT_MODEL,
+    conf_position: str = "suffix",
     custom_config: Optional[Dict] = None,
 ) -> Dataset:
     """
-    Prepare dataset with <|CONF|> in suffix position (after question, before answer).
+    Prepare dataset with <|CONF|> token at specified position.
     
     Args:
         dataset_name: Name of dataset (key in DATASET_CONFIGS) or custom
@@ -160,6 +232,9 @@ def prepare_suffix_confidence_dataset(
         split: Dataset split ("train" or "test")
         max_samples: Optional limit on number of samples
         model_name: Which model's responses/labels to use from model_metrics
+        conf_position: Where to place <|CONF|> token
+            - "suffix": {question} <|CONF|> {answer}
+            - "posterior": {question} {answer} <|CONF|>
         custom_config: Optional custom dataset configuration
         
     Returns:
@@ -168,6 +243,9 @@ def prepare_suffix_confidence_dataset(
             - confidence_label: Target confidence value [0, 1]
             - conf_token_position: Position of <|CONF|> token
     """
+    if conf_position not in CONF_POSITIONS:
+        raise ValueError(f"Unknown conf_position: {conf_position}. Choose from: {CONF_POSITIONS}")
+    
     # Get dataset configuration
     if custom_config:
         config = custom_config
@@ -201,23 +279,21 @@ def prepare_suffix_confidence_dataset(
         # Clamp to [0, 1]
         confidence_label = max(0.0, min(1.0, confidence_label))
         
-        # Format with suffix token
-        text = format_suffix_prompt(question, answer)
+        # Format with <|CONF|> at specified position
+        text = format_prompt(question, answer, conf_position)
         
-        # Find position of <|CONF|> token
-        conf_token_position = get_conf_token_position(question, tokenizer)
-        
+        # conf_token_position is computed after tokenization, placeholder here
         return {
             "text": text,
             "confidence_label": confidence_label,
-            "conf_token_position": conf_token_position,
+            "conf_token_position": -1,  # Will be recomputed during tokenization
         }
     
     # Apply formatting
     formatted_dataset = dataset.map(
         format_example,
         remove_columns=dataset.column_names,
-        desc=f"Formatting {dataset_name} ({split}) using {model_name}"
+        desc=f"Formatting {dataset_name} ({split}) [{conf_position}] using {model_name}"
     )
     
     if fallback_counter["used"] > 0:
@@ -227,8 +303,30 @@ def prepare_suffix_confidence_dataset(
         )
     else:
         print(f"✓ Model metrics all from requested model: {model_name}")
+    print(f"✓ CONF position: {conf_position}")
     
     return formatted_dataset
+
+
+# Alias for backwards compatibility
+def prepare_suffix_confidence_dataset(
+    dataset_name: str,
+    tokenizer: PreTrainedTokenizer,
+    split: str = "train",
+    max_samples: Optional[int] = None,
+    model_name: str = DEFAULT_MODEL,
+    custom_config: Optional[Dict] = None,
+) -> Dataset:
+    """Backwards-compatible alias for prepare_confidence_dataset with suffix position."""
+    return prepare_confidence_dataset(
+        dataset_name=dataset_name,
+        tokenizer=tokenizer,
+        split=split,
+        max_samples=max_samples,
+        model_name=model_name,
+        conf_position="suffix",
+        custom_config=custom_config,
+    )
 
 
 def prepare_multiple_datasets(
@@ -237,6 +335,7 @@ def prepare_multiple_datasets(
     split: str = "train",
     max_samples_per_dataset: Optional[int] = None,
     model_name: str = DEFAULT_MODEL,
+    conf_position: str = "suffix",
 ) -> Dataset:
     """
     Prepare and concatenate multiple datasets.
@@ -247,13 +346,14 @@ def prepare_multiple_datasets(
         split: Dataset split ("train" or "test")
         max_samples_per_dataset: Max samples per dataset
         model_name: Which model's responses/labels to use
+        conf_position: Where to place <|CONF|> ("suffix" or "posterior")
     """
     from datasets import concatenate_datasets
     
     datasets = []
     for name in dataset_names:
-        ds = prepare_suffix_confidence_dataset(
-            name, tokenizer, split, max_samples_per_dataset, model_name
+        ds = prepare_confidence_dataset(
+            name, tokenizer, split, max_samples_per_dataset, model_name, conf_position
         )
         datasets.append(ds)
         print(f"✓ Loaded {name}: {len(ds)} examples")
