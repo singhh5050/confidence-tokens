@@ -28,7 +28,14 @@ import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
 from tokenizer_utils import add_conf_token
-from data import prepare_confidence_dataset, get_tokenized_dataset, CONF_POSITIONS
+from data import (
+    prepare_confidence_dataset, 
+    get_tokenized_dataset, 
+    CONF_POSITIONS,
+    create_train_test_split,
+    FINETUNE_MODEL,
+    DEFAULT_TRACE_MODEL,
+)
 from training import ConfidenceTrainingConfig, train_confidence_model
 
 
@@ -59,8 +66,8 @@ Examples:
     parser.add_argument(
         "--model", "-m",
         type=str,
-        default="allenai/Olmo-3-7B-Think-SFT",
-        help="Model name (default: allenai/Olmo-3-7B-Think-SFT)"
+        default=FINETUNE_MODEL,
+        help=f"Model to fine-tune (default: {FINETUNE_MODEL})"
     )
     
     # Dataset arguments
@@ -76,6 +83,24 @@ Examples:
         type=int,
         default=None,
         help="Limit training samples (for quick testing)"
+    )
+    parser.add_argument(
+        "--test-size",
+        type=float,
+        default=0.2,
+        help="Fraction of data for test/eval set (default: 0.2 = 20%%)"
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed for train/test split (default: 42)"
+    )
+    parser.add_argument(
+        "--trace-model",
+        type=str,
+        default=DEFAULT_TRACE_MODEL,
+        help=f"Model whose traces to use from dataset (default: {DEFAULT_TRACE_MODEL})"
     )
     
     # Training arguments
@@ -195,8 +220,10 @@ Examples:
     print("=" * 70)
     print(f"\nApproach: {approach}")
     print(f"\nConfiguration:")
-    print(f"  Model: {args.model}")
+    print(f"  Model to fine-tune: {args.model}")
+    print(f"  Trace model (data): {args.trace_model}")
     print(f"  Dataset: {args.dataset}")
+    print(f"  Train/Test split: {100*(1-args.test_size):.0f}%/{100*args.test_size:.0f}% (seed={args.seed})")
     print(f"  Output: {args.output_dir}")
     print(f"  Epochs: {args.epochs}")
     print(f"  Batch size: {args.batch_size} x {args.grad_accum} (effective: {args.batch_size * args.grad_accum})")
@@ -251,34 +278,66 @@ Examples:
     conf_token_id = add_conf_token(tokenizer, model)
     print(f"✓ <|CONF|> token ID: {conf_token_id}")
     
-    # Prepare datasets
+    # Prepare datasets with proper train/test split
     print("\n" + "-" * 70)
-    print(f"Preparing {args.dataset} dataset...")
+    print(f"Preparing {args.dataset} dataset with train/test split...")
     print("-" * 70)
     
-    train_dataset = prepare_confidence_dataset(
-        args.dataset, 
-        tokenizer, 
-        "train",
-        args.max_samples,
-        conf_position=args.conf_position,
-    )
-    print(f"✓ Train dataset: {len(train_dataset)} examples")
+    # Create the split and save metadata
+    import os
+    os.makedirs(args.output_dir, exist_ok=True)
     
-    # Try to load eval dataset
-    eval_dataset = None
-    try:
-        eval_max = args.max_samples // 10 if args.max_samples else 1000
-        eval_dataset = prepare_confidence_dataset(
-            args.dataset,
-            tokenizer,
-            "test",
-            eval_max,
-            conf_position=args.conf_position,
+    raw_train, raw_test, split_metadata = create_train_test_split(
+        dataset_name=args.dataset,
+        test_size=args.test_size,
+        seed=args.seed,
+        output_dir=args.output_dir,  # Saves split_metadata.json here
+    )
+    
+    # Limit samples if requested (for quick testing)
+    if args.max_samples:
+        from datasets import Dataset
+        raw_train = raw_train.select(range(min(args.max_samples, len(raw_train))))
+        raw_test = raw_test.select(range(min(args.max_samples // 5, len(raw_test))))
+        print(f"⚠ Limited to {len(raw_train)} train / {len(raw_test)} test samples (--max-samples)")
+    
+    # Format datasets with CONF token
+    from data import format_prompt, extract_from_nested
+    
+    def format_example(example):
+        extracted = extract_from_nested(example, args.trace_model)
+        text = format_prompt(
+            str(extracted["question"]), 
+            str(extracted["answer"]), 
+            args.conf_position
         )
-        print(f"✓ Eval dataset: {len(eval_dataset)} examples")
-    except Exception as e:
-        print(f"⚠ Could not load eval dataset: {e}")
+        return {
+            "text": text,
+            "confidence_label": float(extracted["is_correct"]),
+            "conf_token_position": -1,
+        }
+    
+    train_dataset = raw_train.map(
+        format_example, 
+        remove_columns=raw_train.column_names,
+        desc=f"Formatting train set ({args.conf_position})"
+    )
+    eval_dataset = raw_test.map(
+        format_example,
+        remove_columns=raw_test.column_names,
+        desc=f"Formatting test set ({args.conf_position})"
+    )
+    
+    print(f"✓ Train dataset: {len(train_dataset)} examples")
+    print(f"✓ Eval dataset:  {len(eval_dataset)} examples")
+    
+    # FAIL LOUDLY if no eval dataset
+    if eval_dataset is None or len(eval_dataset) == 0:
+        raise ValueError(
+            "❌ FATAL: No evaluation dataset! "
+            "Training without held-out data is invalid. "
+            "Check your --test-size setting."
+        )
     
     # Tokenize
     print("\nTokenizing datasets...")

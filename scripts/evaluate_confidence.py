@@ -250,12 +250,37 @@ def evaluate_confidence(
             confidence_head = load_confidence_head(model_path, hidden_size, device, dtype)
         # For approach A, we'll train a probe below
     
-    # Load test dataset
+    # Load test dataset using split metadata (ensures same test set as training)
     print("Loading dataset...")
-    dataset = load_dataset(
-        'akenginorhun/mmlu-pro_10k_seed1_Olmo-3_family_metrics',
-        split='train'
-    )
+    
+    split_metadata_path = os.path.join(model_path, "split_metadata.json")
+    if os.path.exists(split_metadata_path):
+        # Use the saved split to get exact same test set
+        print(f"✓ Found split metadata at {split_metadata_path}")
+        with open(split_metadata_path, "r") as f:
+            split_metadata = json.load(f)
+        
+        print(f"  Dataset: {split_metadata['dataset_name']}")
+        print(f"  Test size: {split_metadata['test_size']} (seed={split_metadata['seed']})")
+        print(f"  Expected test samples: {split_metadata['test_samples']}")
+        
+        # Recreate the exact split
+        full_dataset = load_dataset(split_metadata['dataset_path'], split='train')
+        split = full_dataset.train_test_split(
+            test_size=split_metadata['test_size'],
+            seed=split_metadata['seed']
+        )
+        dataset = split['test']
+        print(f"✓ Loaded test set: {len(dataset)} samples (held out during training)")
+    else:
+        # Fallback: use full dataset (but warn!)
+        print("⚠ WARNING: No split_metadata.json found!")
+        print("  This model may have been trained on the data we're evaluating on.")
+        print("  Results may be invalid (train set contamination).")
+        dataset = load_dataset(
+            'akenginorhun/mmlu-pro_10k_seed1_Olmo-3_family_metrics',
+            split='train'
+        )
     
     # Get model name - use the 7B model we trained on, not the 32B
     sample = dataset[0]['model_metrics']

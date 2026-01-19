@@ -14,17 +14,22 @@ Dataset Structure (akenginorhun/* datasets):
     - dataset_metadata: Original question metadata
 """
 
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Tuple
 from datasets import load_dataset, Dataset
 from transformers import PreTrainedTokenizer
+import json
+import os
 
 
 # =============================================================================
 # Dataset Configuration
 # =============================================================================
 
-# Default model to use for extracting responses and labels
-DEFAULT_MODEL = "allenai/Olmo-3-7B-Think-SFT"
+# Model to fine-tune (the SFT version, not RL'd)
+FINETUNE_MODEL = "allenai/Olmo-3-7B-Think-SFT"
+
+# Model whose traces/responses we use from the dataset (the base Think model)
+DEFAULT_TRACE_MODEL = "allenai/Olmo-3-7B-Think"
 
 DATASET_CONFIGS = {
     "mmlu_pro": {
@@ -46,7 +51,136 @@ DATASET_CONFIGS = {
 }
 
 
-def extract_from_nested(example: Dict, model_name: str = DEFAULT_MODEL) -> Dict:
+# =============================================================================
+# Train/Test Split Management
+# =============================================================================
+
+def create_train_test_split(
+    dataset_name: str,
+    test_size: float = 0.2,
+    seed: int = 42,
+    output_dir: Optional[str] = None,
+) -> Tuple[Dataset, Dataset, Dict]:
+    """
+    Load dataset and create reproducible train/test split.
+    
+    Since the HuggingFace datasets only have a 'train' split, we create
+    our own split and save the metadata for reproducibility.
+    
+    Args:
+        dataset_name: Name of dataset (key in DATASET_CONFIGS)
+        test_size: Fraction of data for test set (default: 0.2 = 20%)
+        seed: Random seed for reproducibility (default: 42)
+        output_dir: If provided, saves split metadata to this directory
+        
+    Returns:
+        Tuple of (train_dataset, test_dataset, split_metadata)
+    """
+    if dataset_name not in DATASET_CONFIGS:
+        raise ValueError(f"Unknown dataset: {dataset_name}. Available: {list(DATASET_CONFIGS.keys())}")
+    
+    config = DATASET_CONFIGS[dataset_name]
+    
+    # Load the full dataset (only 'train' split exists)
+    print(f"Loading {dataset_name} from {config['path']}...")
+    full_dataset = load_dataset(config["path"], split="train")
+    
+    # Create split
+    print(f"Creating train/test split (test_size={test_size}, seed={seed})...")
+    split = full_dataset.train_test_split(test_size=test_size, seed=seed)
+    
+    train_dataset = split["train"]
+    test_dataset = split["test"]
+    
+    # Create metadata for tracking
+    split_metadata = {
+        "dataset_name": dataset_name,
+        "dataset_path": config["path"],
+        "total_samples": len(full_dataset),
+        "train_samples": len(train_dataset),
+        "test_samples": len(test_dataset),
+        "test_size": test_size,
+        "seed": seed,
+        "train_indices": list(range(len(train_dataset))),  # After shuffle
+        "test_indices": list(range(len(test_dataset))),
+    }
+    
+    print(f"✓ Split created:")
+    print(f"  Total: {len(full_dataset)}")
+    print(f"  Train: {len(train_dataset)} ({100*(1-test_size):.0f}%)")
+    print(f"  Test:  {len(test_dataset)} ({100*test_size:.0f}%)")
+    
+    # Save metadata if output_dir provided
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+        metadata_path = os.path.join(output_dir, "split_metadata.json")
+        with open(metadata_path, "w") as f:
+            # Don't save indices (too large), just the params needed to recreate
+            save_metadata = {k: v for k, v in split_metadata.items() 
+                           if k not in ["train_indices", "test_indices"]}
+            json.dump(save_metadata, f, indent=2)
+        print(f"✓ Split metadata saved to: {metadata_path}")
+    
+    return train_dataset, test_dataset, split_metadata
+
+
+def load_split_metadata(output_dir: str) -> Dict:
+    """
+    Load split metadata from a training output directory.
+    
+    Use this during evaluation to ensure we use the same test set.
+    
+    Args:
+        output_dir: Path to training output directory
+        
+    Returns:
+        Split metadata dict
+    """
+    metadata_path = os.path.join(output_dir, "split_metadata.json")
+    if not os.path.exists(metadata_path):
+        raise FileNotFoundError(
+            f"No split_metadata.json found at {output_dir}. "
+            "Was this model trained with the new split-aware pipeline?"
+        )
+    
+    with open(metadata_path, "r") as f:
+        metadata = json.load(f)
+    
+    return metadata
+
+
+def get_test_dataset_from_metadata(metadata: Dict, tokenizer=None) -> Dataset:
+    """
+    Recreate the exact test dataset from saved metadata.
+    
+    Args:
+        metadata: Split metadata dict (from load_split_metadata)
+        tokenizer: Optional tokenizer (if provided, returns tokenized dataset)
+        
+    Returns:
+        The test dataset (same samples as during training)
+    """
+    # Recreate the split with same params
+    config = DATASET_CONFIGS[metadata["dataset_name"]]
+    full_dataset = load_dataset(config["path"], split="train")
+    
+    split = full_dataset.train_test_split(
+        test_size=metadata["test_size"], 
+        seed=metadata["seed"]
+    )
+    
+    test_dataset = split["test"]
+    
+    # Verify it matches
+    assert len(test_dataset) == metadata["test_samples"], \
+        f"Test set size mismatch! Expected {metadata['test_samples']}, got {len(test_dataset)}"
+    
+    print(f"✓ Recreated test set: {len(test_dataset)} samples (seed={metadata['seed']})")
+    
+    return test_dataset
+
+
+def extract_from_nested(example: Dict, model_name: str = DEFAULT_TRACE_MODEL) -> Dict:
     """
     Extract question, answer, and correctness from nested dataset structure.
     
@@ -219,7 +353,7 @@ def prepare_confidence_dataset(
     tokenizer: PreTrainedTokenizer,
     split: str = "train",
     max_samples: Optional[int] = None,
-    model_name: str = DEFAULT_MODEL,
+    model_name: str = DEFAULT_TRACE_MODEL,
     conf_position: str = "suffix",
     custom_config: Optional[Dict] = None,
 ) -> Dataset:
@@ -314,7 +448,7 @@ def prepare_suffix_confidence_dataset(
     tokenizer: PreTrainedTokenizer,
     split: str = "train",
     max_samples: Optional[int] = None,
-    model_name: str = DEFAULT_MODEL,
+    model_name: str = DEFAULT_TRACE_MODEL,
     custom_config: Optional[Dict] = None,
 ) -> Dataset:
     """Backwards-compatible alias for prepare_confidence_dataset with suffix position."""
@@ -334,7 +468,7 @@ def prepare_multiple_datasets(
     tokenizer: PreTrainedTokenizer,
     split: str = "train",
     max_samples_per_dataset: Optional[int] = None,
-    model_name: str = DEFAULT_MODEL,
+    model_name: str = DEFAULT_TRACE_MODEL,
     conf_position: str = "suffix",
 ) -> Dataset:
     """
