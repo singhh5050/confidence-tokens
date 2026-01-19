@@ -395,12 +395,9 @@ class SuffixConfidenceTrainer(SFTTrainer):
             })
         
         if return_outputs:
-            # Create minimal outputs object for compatibility
-            class MinimalOutputs:
-                def __init__(self, loss, logits):
-                    self.loss = loss
-                    self.logits = logits
-            return total_loss, MinimalOutputs(total_loss, logits)
+            # Return CausalLMOutput for compatibility with Trainer eval loop
+            from transformers.modeling_outputs import CausalLMOutput
+            return total_loss, CausalLMOutput(loss=total_loss, logits=logits)
         return total_loss
     
     def save_model(self, output_dir: Optional[str] = None, _internal_call: bool = False):
