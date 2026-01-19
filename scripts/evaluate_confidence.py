@@ -123,7 +123,7 @@ def load_confidence_head(model_path: str, hidden_size: int, device, dtype):
     return confidence_head
 
 
-def train_probe_from_data(model, tokenizer, dataset, conf_position: str, device, dtype, num_samples=500):
+def train_probe_from_data(model, tokenizer, dataset, conf_position: str, device, dtype, num_samples=500, target_model_name=None):
     """Train a simple linear probe for Approach A (post-hoc)."""
     print(f"Training post-hoc probe on {num_samples} samples...")
     
@@ -132,7 +132,20 @@ def train_probe_from_data(model, tokenizer, dataset, conf_position: str, device,
     
     # Get model name for the dataset
     sample = dataset[0]['model_metrics']
-    model_name = list(sample.keys())[0]
+    available_models = list(sample.keys())
+    
+    if target_model_name and target_model_name in available_models:
+        model_name = target_model_name
+    else:
+        # Find the 7B Think model
+        model_name = None
+        for m in available_models:
+            if "7B-Think" in m and "SFT" not in m:
+                model_name = m
+                break
+        if model_name is None:
+            model_name = available_models[0]
+    
     print(f"Using model metrics from: {model_name}")
     
     base_model = getattr(model, "model", None) or getattr(model, "base_model", None)
@@ -140,7 +153,7 @@ def train_probe_from_data(model, tokenizer, dataset, conf_position: str, device,
     for i, example in enumerate(tqdm(dataset.select(range(min(num_samples, len(dataset)))), desc="Collecting hidden states")):
         question = example['problem']
         answer = example['model_metrics'][model_name].get('lm_response', '')
-        is_correct = example['model_metrics'][model_name].get('correct', False)
+        is_correct = example['model_metrics'][model_name].get('evaluation', {}).get('is_correct', False)
         
         # Format prompt with answer to get hidden state at <|CONF|> position
         prompt = format_prompt_with_answer(question, answer, conf_position)
@@ -244,15 +257,28 @@ def evaluate_confidence(
         split='train'
     )
     
-    # Get model name
+    # Get model name - use the 7B model we trained on, not the 32B
     sample = dataset[0]['model_metrics']
-    model_name = list(sample.keys())[0]
+    available_models = list(sample.keys())
+    print(f"Available models in dataset: {available_models}")
+    
+    # Find the 7B Think model (what we trained on)
+    model_name = None
+    for m in available_models:
+        if "7B-Think" in m and "SFT" not in m:
+            model_name = m
+            break
+    
+    if model_name is None:
+        model_name = available_models[0]
+        print(f"WARNING: Could not find 7B-Think model, using {model_name}")
+    
     print(f"Using answers from: {model_name}")
     
     # For Approach A with hidden method, train probe first
     if method == "hidden" and approach == "a" and confidence_head is None:
         confidence_head = train_probe_from_data(
-            model, tokenizer, dataset, conf_position, device, dtype, num_samples=500
+            model, tokenizer, dataset, conf_position, device, dtype, num_samples=500, target_model_name=model_name
         )
         if confidence_head is None:
             print("Failed to train probe, falling back to entropy method")
@@ -268,7 +294,7 @@ def evaluate_confidence(
     for example in tqdm(eval_dataset, desc="Evaluating"):
         question = example['problem']
         answer = example['model_metrics'][model_name].get('lm_response', '')
-        is_correct = example['model_metrics'][model_name].get('correct', False)
+        is_correct = example['model_metrics'][model_name].get('evaluation', {}).get('is_correct', False)
         
         try:
             # Format prompt based on position
