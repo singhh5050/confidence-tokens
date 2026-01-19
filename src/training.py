@@ -272,6 +272,38 @@ class SuffixConfidenceTrainer(SFTTrainer):
         device = next(self.model.parameters()).device
         self.confidence_head = self.confidence_head.to(device)
     
+    def create_optimizer(self):
+        """Override to include confidence_head parameters in optimizer."""
+        if self.optimizer is not None:
+            return
+        
+        # First, call parent to set up model parameters
+        super().create_optimizer()
+        
+        # Add confidence_head parameters to the optimizer
+        # Use same LR as model, no weight decay (it's a small probe)
+        conf_head_params = list(self.confidence_head.parameters())
+        
+        # Add to existing optimizer's param_groups
+        self.optimizer.add_param_group({
+            "params": conf_head_params,
+            "weight_decay": 0.0,  # No weight decay for probe
+            "lr": self.args.learning_rate,
+        })
+        
+        # Verify confidence head is actually in optimizer (fail loudly if not)
+        num_param_groups = len(self.optimizer.param_groups)
+        conf_head_param_count = sum(p.numel() for p in conf_head_params)
+        print(f"✓ Added confidence_head to optimizer ({len(conf_head_params)} tensors, {conf_head_param_count} params)")
+        print(f"✓ Optimizer has {num_param_groups} param groups")
+        
+        # Should have at least 3 groups: decay, no_decay, conf_head
+        if num_param_groups < 3:
+            raise RuntimeError(
+                f"Expected at least 3 param groups in optimizer, got {num_param_groups}. "
+                "Confidence head may not be in optimizer!"
+            )
+    
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         # Extract custom labels (pop so they don't go to model forward)
         confidence_labels = inputs.pop("confidence_labels").float()  # (batch,)
@@ -321,11 +353,12 @@ class SuffixConfidenceTrainer(SFTTrainer):
         seq_len = last_hidden.size(1)
         conf_positions = conf_token_positions.to(device)
         
-        # Guard against any out-of-bounds positions (should be rare after filtering)
-        invalid_mask = conf_positions >= seq_len
+        # Guard against any out-of-bounds or invalid positions (should be rare after filtering)
+        # Note: position -1 would index the last token in Python, so we must check < 0 too
+        invalid_mask = (conf_positions >= seq_len) | (conf_positions < 0)
         if invalid_mask.any():
-            # Clamp to last token to avoid crashes; loss masking handles invalid entries
-            conf_positions = torch.clamp(conf_positions, max=seq_len - 1)
+            # Clamp to valid range to avoid crashes; loss masking handles invalid entries
+            conf_positions = torch.clamp(conf_positions, min=0, max=seq_len - 1)
         
         conf_hidden = last_hidden[batch_idx, conf_positions]  # (batch, hidden)
         
