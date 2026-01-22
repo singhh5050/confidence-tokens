@@ -376,27 +376,35 @@ def evaluate_confidence(
     dataset = split['test']
     print(f"✓ Loaded test set: {len(dataset)} samples (held out during training)")
 
-    if not os.path.exists(run_config_path):
-        raise FileNotFoundError(
-            f"Missing run_config.json at {run_config_path}. "
-            "Evaluation requires the training trace_model to avoid ambiguity."
-        )
-    with open(run_config_path, "r") as f:
-        run_config = json.load(f)
-    trace_model_name = run_config.get("args", {}).get("trace_model")
-    
     # Get model name - use the 7B model we trained on, not the 32B
     sample = dataset[0]['model_metrics']
     available_models = list(sample.keys())
     print(f"Available models in dataset: {available_models}")
     
-    # Use trace_model from run_config if available; otherwise default to 7B-Think (no fallback)
+    # Try to get trace_model from run_config.json, fall back to 7B-Think if not available
+    trace_model_name = None
+    if os.path.exists(run_config_path):
+        with open(run_config_path, "r") as f:
+            run_config = json.load(f)
+        trace_model_name = run_config.get("args", {}).get("trace_model")
+        print(f"✓ Found run_config.json, trace_model: {trace_model_name}")
+    else:
+        print(f"⚠ No run_config.json found at {run_config_path}, using fallback")
+    
+    # Use trace_model from run_config if available; otherwise find 7B-Think model
     model_name = trace_model_name
     if model_name is None or model_name not in available_models:
-        raise ValueError(
-            f"Requested trace model not found in dataset. "
-            f"Requested: {model_name}, available: {available_models}"
-        )
+        # Fallback: find the 7B-Think model
+        for m in available_models:
+            if "7B-Think" in m and "SFT" not in m:
+                model_name = m
+                print(f"  Using fallback model: {model_name}")
+                break
+        if model_name is None or model_name not in available_models:
+            raise ValueError(
+                f"Could not find suitable model in dataset. "
+                f"Available: {available_models}"
+            )
     print(f"Using answers from: {model_name}")
     
     # DEBUG: Create comprehensive debug log
