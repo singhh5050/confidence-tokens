@@ -3,7 +3,9 @@
 Cross-dataset routing evaluation.
 
 Evaluates a trained confidence model (b_suffix) on any dataset for routing analysis.
-Does NOT use split_metadata - evaluates on fresh data from specified dataset.
+Uses the model's saved `split_metadata.json` *when* the evaluation dataset matches the
+training dataset, to avoid train/test contamination. For out-of-distribution datasets,
+it creates a fresh deterministic split (seeded) for evaluation.
 
 For Approach B models only (uses pre-trained confidence_head).
 
@@ -38,6 +40,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 # Target model whose traces we use
 TARGET_MODEL = "allenai/Olmo-3-7B-Think"
+
+# Default evaluation split (used only when NOT using the model's training split metadata)
+DEFAULT_TEST_SIZE = 0.2
 
 # Dataset configurations
 DATASETS = {
@@ -136,6 +141,10 @@ def evaluate_on_dataset(
     conf_position: str = "suffix",
     num_eval: int = 1000,
     seed: int = 42,
+    test_size: float = DEFAULT_TEST_SIZE,
+    training_split_metadata: dict | None = None,
+    min_eval_samples: int = 500,
+    fail_on_skips: bool = True,
 ):
     """
     Evaluate confidence model on a dataset for routing analysis.
@@ -156,28 +165,59 @@ def evaluate_on_dataset(
     print("Loading dataset...")
     full_dataset = load_dataset(config["path"], split="train")
     print(f"Total samples in dataset: {len(full_dataset)}")
-    
-    # Filter to samples with target model traces
+
+    # Decide which split parameters to use.
+    # IMPORTANT: split first, then filter. This matches `scripts/train.py`, which splits
+    # on the full dataset and only then filters train/test for missing traces.
+    split_source = "fresh"
+    split_seed = seed
+    split_test_size = test_size
+    if training_split_metadata is not None:
+        meta_path = training_split_metadata.get("dataset_path")
+        meta_name = training_split_metadata.get("dataset_name")
+        if meta_path == config["path"] or meta_name == dataset_name:
+            split_source = "training_metadata"
+            split_seed = int(training_split_metadata["seed"])
+            split_test_size = float(training_split_metadata["test_size"])
+            print(
+                f"✓ Using training split metadata for {dataset_name}: "
+                f"test_size={split_test_size}, seed={split_seed}"
+            )
+        else:
+            print(
+                f"ℹ Dataset differs from training dataset; using fresh split: "
+                f"test_size={split_test_size}, seed={split_seed}"
+            )
+    else:
+        print(
+            f"ℹ No training split metadata provided; using fresh split: "
+            f"test_size={split_test_size}, seed={split_seed}"
+        )
+
+    split = full_dataset.train_test_split(test_size=split_test_size, seed=split_seed)
+    test_dataset = split["test"]
+    print(f"Test split (pre-filter): {len(test_dataset)} samples ({split_source})")
+
+    # Filter the TEST split to samples with target model traces (matches training pipeline)
     def has_target_model(ex):
         return TARGET_MODEL in ex.get("model_metrics", {})
-    
-    dataset = full_dataset.filter(has_target_model, desc=f"Filtering by {TARGET_MODEL}")
-    print(f"Samples with {TARGET_MODEL} traces: {len(dataset)}")
-    
-    if len(dataset) < 100:
-        raise ValueError(f"Only {len(dataset)} valid samples - not enough for evaluation")
-    
-    # Create test split (use 20% as test, consistent with training)
-    # This ensures we don't accidentally evaluate on training data if same dataset
-    split = dataset.train_test_split(test_size=0.2, seed=seed)
-    test_dataset = split["test"]
-    print(f"Test split: {len(test_dataset)} samples (20%, seed={seed})")
+
+    pre_filter_test = len(test_dataset)
+    test_dataset = test_dataset.filter(has_target_model, desc=f"Filtering test by {TARGET_MODEL}")
+    post_filter_test = len(test_dataset)
+    print(f"Test split (post-filter): {post_filter_test}/{pre_filter_test} samples with {TARGET_MODEL} traces")
+
+    if post_filter_test < min_eval_samples:
+        raise ValueError(
+            f"Too few valid test samples after filtering: {post_filter_test} < {min_eval_samples}. "
+            f"Refusing to run (would be low-integrity / unstable)."
+        )
     
     # Sample for evaluation
     if num_eval < len(test_dataset):
-        eval_dataset = test_dataset.shuffle(seed=seed).select(range(num_eval))
+        eval_dataset = test_dataset.shuffle(seed=split_seed).select(range(num_eval))
     else:
-        eval_dataset = test_dataset.shuffle(seed=seed)
+        eval_dataset = test_dataset.shuffle(seed=split_seed)
     print(f"Evaluating on: {len(eval_dataset)} samples")
     
     # Get device
@@ -230,7 +270,10 @@ def evaluate_on_dataset(
     
     print(f"\nEvaluated: {len(results['confidences'])} samples")
     if skipped > 0:
-        print(f"⚠ Skipped {skipped} samples (truncation or errors)")
+        msg = f"Skipped {skipped} samples (missing <|CONF|> after truncation or errors)"
+        if fail_on_skips:
+            raise RuntimeError(f"❌ {msg}. Refusing to silently drop samples.")
+        print(f"⚠ {msg}")
     
     # Convert to numpy
     confidences = np.array(results["confidences"])
@@ -240,6 +283,14 @@ def evaluate_on_dataset(
     # Compute metrics
     metrics = {
         "dataset": dataset_name,
+        "dataset_path": config["path"],
+        "split": {
+            "source": split_source,
+            "seed": split_seed,
+            "test_size": split_test_size,
+            "test_pre_filter": int(pre_filter_test),
+            "test_post_filter": int(post_filter_test),
+        },
         "num_samples": len(confidences),
         "num_skipped": skipped,
         "accuracy": float(labels.mean()),
@@ -331,10 +382,17 @@ def main():
                        help="Position of <|CONF|> token")
     parser.add_argument("--num-eval", type=int, default=1000,
                        help="Number of samples to evaluate")
+    parser.add_argument("--test-size", type=float, default=DEFAULT_TEST_SIZE,
+                       help="Test split fraction used for OOD datasets (default: 0.2). "
+                            "Ignored when evaluating on the training dataset via split_metadata.")
     parser.add_argument("--output-dir", type=str, default=None,
                        help="Output directory (default: model_path/routing_eval/)")
     parser.add_argument("--seed", type=int, default=42,
                        help="Random seed")
+    parser.add_argument("--min-eval-samples", type=int, default=500,
+                       help="Fail if fewer than this many test samples remain after filtering")
+    parser.add_argument("--allow-skips", action="store_true",
+                       help="Allow skipping samples where <|CONF|> is truncated/missing (not recommended)")
     args = parser.parse_args()
     
     # Set output dir
@@ -376,6 +434,16 @@ def main():
     
     # Load confidence head
     confidence_head = load_confidence_head(args.model_path, hidden_size, device, torch_dtype)
+
+    # Load training split metadata (if present) to avoid train/test contamination on in-distribution eval
+    training_split_metadata = None
+    split_meta_path = os.path.join(args.model_path, "split_metadata.json")
+    if os.path.exists(split_meta_path):
+        with open(split_meta_path, "r") as f:
+            training_split_metadata = json.load(f)
+        print(f"✓ Found training split metadata at {split_meta_path}")
+    else:
+        print(f"ℹ No split_metadata.json found at {split_meta_path} (OOD-only safe, but IID may contaminate)")
     
     # Determine datasets to evaluate
     if args.dataset == "all":
@@ -395,6 +463,10 @@ def main():
                 conf_position=args.conf_position,
                 num_eval=args.num_eval,
                 seed=args.seed,
+                test_size=args.test_size,
+                training_split_metadata=training_split_metadata,
+                min_eval_samples=args.min_eval_samples,
+                fail_on_skips=(not args.allow_skips),
             )
             all_results[dataset_name] = metrics
             
