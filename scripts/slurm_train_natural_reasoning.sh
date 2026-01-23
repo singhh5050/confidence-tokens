@@ -24,8 +24,7 @@ python scripts/train.py \
     --dataset natural_reasoning \
     --conf-position suffix \
     --output-dir /matx/u/$USER/confidence-tokens/outputs/b_suffix_natural_reasoning \
-    --epochs 3 \
-    --eval-strategy no
+    --epochs 3
 
 echo "Done!"
 

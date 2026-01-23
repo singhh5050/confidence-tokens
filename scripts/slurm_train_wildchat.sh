@@ -24,8 +24,7 @@ python scripts/train.py \
     --dataset wildchat \
     --conf-position suffix \
     --output-dir /matx/u/$USER/confidence-tokens/outputs/b_suffix_wildchat \
-    --epochs 3 \
-    --eval-strategy no
+    --epochs 3
 
 echo "Done!"
 
