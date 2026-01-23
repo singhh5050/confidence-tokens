@@ -84,6 +84,7 @@ def create_train_test_split(
     # Load the full dataset (only 'train' split exists)
     print(f"Loading {dataset_name} from {config['path']}...")
     full_dataset = load_dataset(config["path"], split="train")
+    dataset_fingerprint = getattr(full_dataset, "_fingerprint", None)
     
     # Create split
     print(f"Creating train/test split (test_size={test_size}, seed={seed})...")
@@ -96,6 +97,7 @@ def create_train_test_split(
     split_metadata = {
         "dataset_name": dataset_name,
         "dataset_path": config["path"],
+        "dataset_fingerprint": dataset_fingerprint,
         "total_samples": len(full_dataset),
         "train_samples": len(train_dataset),
         "test_samples": len(test_dataset),
@@ -194,7 +196,6 @@ def extract_from_nested(example: Dict, model_name: str = DEFAULT_TRACE_MODEL) ->
             - answer
             - is_correct
             - source_model: which model was used
-            - used_fallback: bool, true if default model was missing
     """
     # Question is always in 'problem' column
     question = example.get("problem", "")
@@ -202,31 +203,30 @@ def extract_from_nested(example: Dict, model_name: str = DEFAULT_TRACE_MODEL) ->
     # Get model-specific metrics
     model_metrics = example.get("model_metrics", {})
     
-    used_fallback = False
     if model_name not in model_metrics:
-        # Fallback: try to find any available model
         available_models = list(model_metrics.keys())
-        if available_models:
-            model_name = available_models[0]
-            used_fallback = True
-        else:
-            raise ValueError(f"No model metrics found in example. Available: {model_metrics.keys()}")
+        raise ValueError(
+            f"Requested model '{model_name}' not found in model_metrics. "
+            f"Available: {available_models}"
+        )
     
     model_data = model_metrics[model_name]
     
     # Extract model's response (answer)
     answer = model_data.get("lm_response", "")
     
-    # Extract correctness label from evaluation
-    evaluation = model_data.get("evaluation", {})
-    is_correct = evaluation.get("is_correct", False)
+    # Extract correctness label from evaluation (handle None case)
+    evaluation = model_data.get("evaluation")
+    if evaluation is None:
+        is_correct = False  # Treat null evaluation as incorrect
+    else:
+        is_correct = evaluation.get("is_correct", False)
     
     return {
         "question": question,
         "answer": answer,
         "is_correct": float(is_correct),  # Convert bool to float for training
         "source_model": model_name,
-        "used_fallback": used_fallback,
     }
 
 
@@ -397,14 +397,9 @@ def prepare_confidence_dataset(
     if max_samples is not None and len(dataset) > max_samples:
         dataset = dataset.select(range(max_samples))
     
-    fallback_counter = {"used": 0, "total": 0}
-    
     def format_example(example):
-        fallback_counter["total"] += 1
         # Extract from nested structure
         extracted = extract_from_nested(example, model_name)
-        if extracted.get("used_fallback"):
-            fallback_counter["used"] += 1
         
         question = str(extracted["question"])
         answer = str(extracted["answer"])
@@ -424,19 +419,21 @@ def prepare_confidence_dataset(
         }
     
     # Apply formatting
+    original_len = len(dataset)
+    dataset = dataset.filter(
+        lambda ex: model_name in ex.get("model_metrics", {}),
+        desc=f"Filtering by model_metrics ({model_name})"
+    )
+    dropped = original_len - len(dataset)
+    if dropped > 0:
+        print(f"⚠ Dropped {dropped} samples without model_metrics for: {model_name}")
+    
     formatted_dataset = dataset.map(
         format_example,
         remove_columns=dataset.column_names,
         desc=f"Formatting {dataset_name} ({split}) [{conf_position}] using {model_name}"
     )
-    
-    if fallback_counter["used"] > 0:
-        print(
-            f"⚠ Model metrics fallback used for {fallback_counter['used']}/{fallback_counter['total']} "
-            f"samples (requested model: {model_name})"
-        )
-    else:
-        print(f"✓ Model metrics all from requested model: {model_name}")
+    print(f"✓ Model metrics all from requested model: {model_name}")
     print(f"✓ CONF position: {conf_position}")
     
     return formatted_dataset
@@ -549,6 +546,7 @@ def get_tokenized_dataset(
     max_length: int = 4096,
     include_conf_fields: bool = True,
     drop_invalid_conf: bool = True,
+    drop_truncated: bool = True,
 ) -> Dataset:
     """
     Tokenize a formatted dataset for training.
@@ -566,8 +564,14 @@ def get_tokenized_dataset(
     invalid_conf = sum(1 for v in valid_conf_mask if not v)
     truncated = sum(1 for t in truncated_mask if t)
     
-    if include_conf_fields and drop_invalid_conf:
-        tokenized = tokenized.filter(lambda ex: ex["valid_conf"])
+    if drop_invalid_conf or drop_truncated:
+        def keep_example(ex):
+            if drop_invalid_conf and not ex["valid_conf"]:
+                return False
+            if drop_truncated and ex["truncated"]:
+                return False
+            return True
+        tokenized = tokenized.filter(keep_example)
     
     print(
         f"Tokenization summary: total={total_rows}, "
