@@ -23,6 +23,7 @@ python scripts/evaluate_routing.py \
     --dataset all \
     --conf-position suffix \
     --num-eval 1000 \
+    --min-eval-samples 500 \
     --output-dir /matx/u/$USER/confidence-tokens/outputs/routing_eval_b_suffix
 
 echo "Done!"
