@@ -166,19 +166,36 @@ def verify_dataset(name: str, path: str) -> dict:
             f"need at least {MIN_SAMPLES}"
         )
     
-    # Compute overall accuracy
-    correct_total = sum(
-        1 for ex in valid_dataset 
-        if ex["model_metrics"][TARGET_MODEL].get("evaluation", {}).get("is_correct", False)
-    )
-    overall_accuracy = correct_total / valid_count
-    print(f"✓ Overall accuracy ({TARGET_MODEL}): {overall_accuracy:.1%} ({correct_total}/{valid_count})")
+    # Compute overall accuracy (handle None evaluation gracefully)
+    correct_total = 0
+    null_eval_count = 0
+    for ex in valid_dataset:
+        evaluation = ex["model_metrics"][TARGET_MODEL].get("evaluation")
+        if evaluation is None:
+            null_eval_count += 1
+            continue
+        if evaluation.get("is_correct", False):
+            correct_total += 1
+    
+    if null_eval_count > 0:
+        print(f"⚠ {null_eval_count}/{valid_count} samples have null 'evaluation' field")
+        valid_for_accuracy = valid_count - null_eval_count
+    else:
+        valid_for_accuracy = valid_count
+    
+    if valid_for_accuracy > 0:
+        overall_accuracy = correct_total / valid_for_accuracy
+        print(f"✓ Overall accuracy ({TARGET_MODEL}): {overall_accuracy:.1%} ({correct_total}/{valid_for_accuracy})")
+    else:
+        overall_accuracy = 0.0
+        print(f"⚠ No valid samples to compute accuracy")
     
     return {
         "name": name,
         "path": path,
         "total_samples": total_samples,
         "valid_samples": valid_count,
+        "null_eval_samples": null_eval_count,
         "accuracy": overall_accuracy,
         "metadata_fields": metadata_fields,
     }
@@ -213,6 +230,8 @@ def main():
     for name, result in results.items():
         print(f"\n{name}:")
         print(f"  Valid samples: {result['valid_samples']}")
+        if result.get('null_eval_samples', 0) > 0:
+            print(f"  ⚠ Null evaluations: {result['null_eval_samples']}")
         print(f"  Accuracy: {result['accuracy']:.1%}")
         print(f"  Metadata: {result['metadata_fields'] or 'None'}")
     

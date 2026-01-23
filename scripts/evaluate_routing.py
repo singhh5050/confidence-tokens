@@ -237,7 +237,13 @@ def evaluate_on_dataset(
         question = example["problem"]
         model_data = example["model_metrics"][TARGET_MODEL]
         answer = model_data.get("lm_response", "")
-        is_correct = model_data.get("evaluation", {}).get("is_correct", False)
+        
+        # Handle null evaluation field (some datasets have this)
+        evaluation = model_data.get("evaluation")
+        if evaluation is None:
+            skipped += 1
+            continue
+        is_correct = evaluation.get("is_correct", False)
         category = extract_category(example, dataset_name)
         
         # Format prompt based on position
