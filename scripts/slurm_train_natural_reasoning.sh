@@ -5,7 +5,8 @@
 #SBATCH --gres=gpu:1
 #SBATCH --mem=80G
 #SBATCH --cpus-per-gpu=8
-#SBATCH --time=16:00:00
+#SBATCH --time=24:00:00
+#SBATCH --exclude=matx-amd-1
 #SBATCH --output=/matx/u/%u/confidence-tokens/logs/b_suffix_natural_reasoning_%j.out
 #SBATCH --error=/matx/u/%u/confidence-tokens/logs/b_suffix_natural_reasoning_%j.err
 
