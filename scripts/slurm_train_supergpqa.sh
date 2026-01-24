@@ -25,7 +25,9 @@ python scripts/train.py \
     --dataset supergpqa \
     --conf-position suffix \
     --output-dir /matx/u/$USER/confidence-tokens/outputs/b_suffix_supergpqa \
-    --epochs 3
+    --epochs 3 \
+    --batch-size 2 \
+    --grad-accum 16
 
 echo "Done!"
 
