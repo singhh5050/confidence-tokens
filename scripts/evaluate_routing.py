@@ -46,9 +46,14 @@ DEFAULT_TEST_SIZE = 0.2
 
 # Dataset configurations
 DATASETS = {
-    "mmlu_pro": {
+    "mmlu": {
         "path": "akenginorhun/mmlu-pro_10k_seed1_Olmo-3_family_metrics",
         "category_field": "category",  # or check dataset_metadata
+    },
+    # Alias for backward compatibility
+    "mmlu_pro": {
+        "path": "akenginorhun/mmlu-pro_10k_seed1_Olmo-3_family_metrics",
+        "category_field": "category",
     },
     "supergpqa": {
         "path": "akenginorhun/supergpqa_10k_seed1_Olmo-3_family_metrics",

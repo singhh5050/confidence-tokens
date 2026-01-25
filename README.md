@@ -6,11 +6,9 @@ Training models with `<|CONF|>` suffix token for confidence estimation.
 
 Insert a `<|CONF|>` token after the question but before the answer. The token's hidden state encodes confidence information about the subsequent answer.
 
-**Prompt Format:**
+**Prompt Format (current codebase):**
 ```
-Problem to solve: {question}
-Confidence: <|CONF|>
-Answer: {answer}
+{question} <|CONF|> {answer}
 ```
 
 **Two Training Approaches:**
@@ -84,7 +82,7 @@ from src.data import format_suffix_prompt, get_conf_token_position
 
 # Format prompt
 prompt = format_suffix_prompt("What is 2+2?", "4")
-conf_pos = get_conf_token_position("What is 2+2?", tokenizer)
+conf_pos = get_conf_token_position(prompt, tokenizer)
 
 # Forward pass
 inputs = tokenizer(prompt, return_tensors="pt")

@@ -220,7 +220,7 @@ def extract_from_nested(example: Dict, model_name: str = DEFAULT_TRACE_MODEL) ->
     if evaluation is None:
         is_correct = False  # Treat null evaluation as incorrect
     else:
-        is_correct = evaluation.get("is_correct", False)
+    is_correct = evaluation.get("is_correct", False)
     
     return {
         "question": question,

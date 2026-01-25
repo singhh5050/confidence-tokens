@@ -103,7 +103,8 @@ def run_forward_smoke_test(model_name: str = "allenai/Olmo-3-7B-Think-SFT"):
         print(f"EXAMPLE {i}: {example['description']}")
         print(f"{'-' * 70}")
         
-        # Format using the spec's prompt format
+        # NOTE: This smoke test uses the minimal prompt format used in training.
+        # It is not the longer "Problem to solve / Confidence / Answer" format.
         prompt_text = format_suffix_prompt(example["question"], example["answer"])
         conf_pos = get_conf_token_position(example["question"], tokenizer)
         

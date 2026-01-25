@@ -375,7 +375,7 @@ def evaluate_confidence(
     train_dataset = split['train']
     dataset = split['test']
     print(f"✓ Loaded test set: {len(dataset)} samples (held out during training)")
-
+    
     # Get model name - use the 7B model we trained on, not the 32B
     sample = dataset[0]['model_metrics']
     available_models = list(sample.keys())
@@ -400,11 +400,11 @@ def evaluate_confidence(
                 model_name = m
                 print(f"  Using fallback model: {model_name}")
                 break
-        if model_name is None or model_name not in available_models:
-            raise ValueError(
+    if model_name is None or model_name not in available_models:
+        raise ValueError(
                 f"Could not find suitable model in dataset. "
                 f"Available: {available_models}"
-            )
+        )
     print(f"Using answers from: {model_name}")
     
     # DEBUG: Create comprehensive debug log

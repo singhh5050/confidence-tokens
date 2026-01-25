@@ -1,0 +1,9 @@
+{
+  "dataset_name": "mmlu_pro",
+  "dataset_path": "akenginorhun/mmlu-pro_10k_seed1_Olmo-3_family_metrics",
+  "total_samples": 10000,
+  "train_samples": 8000,
+  "test_samples": 2000,
+  "test_size": 0.2,
+  "seed": 42
+}

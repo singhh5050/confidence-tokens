@@ -63,7 +63,7 @@ for i in "${!MODELS[@]}"; do
             --output="${LOGS_DIR}/${JOB_NAME}_%j.out" \
             --error="${LOGS_DIR}/${JOB_NAME}_%j.err" \
             --exclude=matx-amd-1 \
-            --wrap=". /matx/u/singhh/venvs/conf/bin/activate && cd /matx/u/singhh/confidence-tokens && python scripts/evaluate_routing.py --model-path ${MODEL_PATH} --dataset ${DATASET} --output-dir ${OUT_DIR} --num-samples 2000 --min-eval-samples 500 --allow-skips"
+            --wrap=". /matx/u/singhh/venvs/conf/bin/activate && cd /matx/u/singhh/confidence-tokens && python scripts/evaluate_routing.py --model-path ${MODEL_PATH} --dataset ${DATASET} --output-dir ${OUT_DIR} --num-eval 2000 --min-eval-samples 500 --allow-skips"
     done
 done
 

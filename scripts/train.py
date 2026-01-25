@@ -24,7 +24,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import argparse
+import json
+import random
 import torch
+import numpy as np
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
 from tokenizer_utils import add_conf_token
@@ -196,6 +199,16 @@ Examples:
     )
     
     args = parser.parse_args()
+
+    # Seed everything for reproducibility
+    def set_seed(seed: int) -> None:
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
+
+    set_seed(args.seed)
     
     # Determine dtype FIRST (before printing config)
     bf16_supported = torch.cuda.is_available() and torch.cuda.is_bf16_supported()
@@ -301,6 +314,23 @@ Examples:
         raw_test = raw_test.select(range(min(args.max_samples // 5, len(raw_test))))
         print(f"⚠ Limited to {len(raw_train)} train / {len(raw_test)} test samples (--max-samples)")
     
+    # Filter out samples missing the requested trace model (no fallback)
+    def has_trace_model(example):
+        return args.trace_model in example.get("model_metrics", {})
+    
+    pre_filter_train = len(raw_train)
+    raw_train = raw_train.filter(has_trace_model, desc=f"Filtering train by {args.trace_model}")
+    pre_filter_test = len(raw_test)
+    raw_test = raw_test.filter(has_trace_model, desc=f"Filtering test by {args.trace_model}")
+    
+    dropped_train = pre_filter_train - len(raw_train)
+    dropped_test = pre_filter_test - len(raw_test)
+    if dropped_train > 0 or dropped_test > 0:
+        print(
+            f"⚠ Dropped samples missing model_metrics for {args.trace_model}: "
+            f"train={dropped_train}, test={dropped_test}"
+        )
+    
     # Format datasets with CONF token
     from data import format_prompt, extract_from_nested
     
@@ -341,19 +371,29 @@ Examples:
     
     # Tokenize
     print("\nTokenizing datasets...")
+    pre_tokenize_train = len(train_dataset)
     train_dataset = get_tokenized_dataset(
         train_dataset,
         tokenizer,
         args.max_length,
         include_conf_fields=args.supervised,
+        drop_invalid_conf=True,
+        drop_truncated=True,
     )
+    dropped_tokenize_train = pre_tokenize_train - len(train_dataset)
     if eval_dataset:
+        pre_tokenize_eval = len(eval_dataset)
         eval_dataset = get_tokenized_dataset(
             eval_dataset,
             tokenizer,
             args.max_length,
             include_conf_fields=args.supervised,
+            drop_invalid_conf=True,
+            drop_truncated=True,
         )
+        dropped_tokenize_eval = pre_tokenize_eval - len(eval_dataset)
+    else:
+        dropped_tokenize_eval = 0
     print("✓ Tokenization complete")
     
     # Configure training
@@ -379,6 +419,32 @@ Examples:
         report_to="wandb" if args.wandb else "none",
         run_name=args.run_name,
     )
+
+    # Save run config for accountability/reproducibility
+    try:
+        import subprocess
+        git_commit = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=str(Path(__file__).parent.parent), text=True
+        ).strip()
+    except Exception:
+        git_commit = None
+
+    run_config = {
+        "args": vars(args),
+        "precision": "bf16" if dtype == torch.bfloat16 else ("fp16" if dtype == torch.float16 else "fp32"),
+        "git_commit": git_commit,
+        "split_metadata": split_metadata,
+        "dropped_counts": {
+            "missing_trace_model_train": dropped_train,
+            "missing_trace_model_test": dropped_test,
+            "tokenized_drop_train": dropped_tokenize_train,
+            "tokenized_drop_eval": dropped_tokenize_eval,
+        },
+    }
+    config_path = Path(args.output_dir) / "run_config.json"
+    with open(config_path, "w") as f:
+        json.dump(run_config, f, indent=2)
+    print(f"✓ Saved run config to: {config_path}")
     
     # Train
     print("\n" + "-" * 70)
