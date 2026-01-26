@@ -23,6 +23,7 @@ Usage:
 """
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -76,7 +77,11 @@ def compute_ece(confidences, correctness, n_bins=10):
     ece = 0.0
     
     for i in range(n_bins):
-        mask = (confidences >= bin_boundaries[i]) & (confidences < bin_boundaries[i + 1])
+        if i == n_bins - 1:
+            # Include exact 1.0 in the final bin
+            mask = (confidences >= bin_boundaries[i]) & (confidences <= bin_boundaries[i + 1])
+        else:
+            mask = (confidences >= bin_boundaries[i]) & (confidences < bin_boundaries[i + 1])
         if mask.sum() > 0:
             bin_conf = confidences[mask].mean()
             bin_acc = correctness[mask].mean()
@@ -235,10 +240,13 @@ def evaluate_on_dataset(
         "labels": [],
         "categories": [],
         "questions": [],
+        "sample_indices": [],
+        "skipped_indices": [],
+        "skipped_reasons": [],
     }
     
     skipped = 0
-    for example in tqdm(eval_dataset, desc="Evaluating"):
+    for sample_idx, example in enumerate(tqdm(eval_dataset, desc="Evaluating")):
         question = example["problem"]
         model_data = example["model_metrics"][TARGET_MODEL]
         answer = model_data.get("lm_response", "")
@@ -247,6 +255,8 @@ def evaluate_on_dataset(
         evaluation = model_data.get("evaluation")
         if evaluation is None:
             skipped += 1
+            results["skipped_indices"].append(sample_idx)
+            results["skipped_reasons"].append("null_evaluation")
             continue
         is_correct = evaluation.get("is_correct", False)
         category = extract_category(example, dataset_name)
@@ -263,6 +273,8 @@ def evaluate_on_dataset(
         input_ids = inputs["input_ids"][0].tolist()
         if conf_token_id not in input_ids:
             skipped += 1
+            results["skipped_indices"].append(sample_idx)
+            results["skipped_reasons"].append("conf_token_missing")
             continue
         conf_pos = input_ids.index(conf_token_id)
         
@@ -272,12 +284,15 @@ def evaluate_on_dataset(
         except Exception as e:
             print(f"Error computing confidence: {e}")
             skipped += 1
+            results["skipped_indices"].append(sample_idx)
+            results["skipped_reasons"].append("confidence_error")
             continue
         
         results["confidences"].append(conf)
         results["labels"].append(1 if is_correct else 0)
         results["categories"].append(category)
         results["questions"].append(question[:200])  # Truncate for storage
+        results["sample_indices"].append(sample_idx)
     
     print(f"\nEvaluated: {len(results['confidences'])} samples")
     if skipped > 0:
@@ -292,6 +307,11 @@ def evaluate_on_dataset(
     categories = results["categories"]
     
     # Compute metrics
+    # Fingerprint for sample alignment checks
+    sample_fingerprint = hashlib.md5(
+        "|".join(results["questions"]).encode("utf-8")
+    ).hexdigest()
+
     metrics = {
         "dataset": dataset_name,
         "dataset_path": config["path"],
@@ -302,11 +322,13 @@ def evaluate_on_dataset(
             "test_pre_filter": int(pre_filter_test),
             "test_post_filter": int(post_filter_test),
         },
+        "num_eval": int(num_eval),
         "num_samples": len(confidences),
         "num_skipped": skipped,
         "accuracy": float(labels.mean()),
         "confidence_mean": float(confidences.mean()),
         "confidence_std": float(confidences.std()),
+        "sample_fingerprint": sample_fingerprint,
     }
     
     # Calibration metrics
@@ -486,6 +508,25 @@ def main():
             with open(output_path, "w") as f:
                 json.dump(metrics, f, indent=2)
             print(f"✓ Saved to {output_path}")
+
+            # Save per-sample routing info for cost analysis
+            per_sample_path = os.path.join(args.output_dir, f"{dataset_name}_per_sample.jsonl")
+            with open(per_sample_path, "w") as f:
+                for idx, conf, label, category, question_prefix in zip(
+                    raw_results.get("sample_indices", []),
+                    raw_results.get("confidences", []),
+                    raw_results.get("labels", []),
+                    raw_results.get("categories", []),
+                    raw_results.get("questions", []),
+                ):
+                    f.write(json.dumps({
+                        "sample_idx": idx,
+                        "confidence": conf,
+                        "label": label,
+                        "category": category,
+                        "question_prefix": question_prefix,
+                    }) + "\n")
+            print(f"✓ Saved per-sample data to {per_sample_path}")
             
         except Exception as e:
             print(f"❌ Failed on {dataset_name}: {e}")
