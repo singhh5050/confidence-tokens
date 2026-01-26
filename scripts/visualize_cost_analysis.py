@@ -422,14 +422,14 @@ def create_figure1_coverage_accuracy_grid(all_results: dict, output_path: str):
     fig.text(0.5, 0.01, "Coverage (% routed locally)", ha="center", fontsize=12)
     fig.text(0.01, 0.5, "Local Accuracy (%)", va="center", rotation="vertical", fontsize=12)
     
-    # Row/column headers
-    fig.text(0.5, 0.99, "Evaluation Dataset →", ha="center", fontsize=11, style="italic")
-    fig.text(0.01, 0.99, "Model ↓", ha="left", fontsize=11, style="italic")
-    
     plt.suptitle("Coverage vs Local Accuracy\n(Blue = In-Distribution, Gray = Out-of-Distribution)", 
-                 fontsize=14, fontweight="bold", y=1.02)
+                 fontsize=14, fontweight="bold", y=0.995)
     
-    plt.tight_layout(rect=[0.03, 0.03, 1, 0.98])
+    # Row/column headers - positioned below title
+    fig.text(0.5, 0.95, "Evaluation Dataset →", ha="center", fontsize=11, style="italic")
+    fig.text(0.03, 0.95, "Model ↓", ha="left", fontsize=11, style="italic")
+    
+    plt.tight_layout(rect=[0.04, 0.03, 1, 0.94])
     plt.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close()
     print(f"✓ Saved Figure 1: {output_path}")
@@ -569,12 +569,11 @@ def create_figure3_cost_pareto(cost_results: dict, output_path: str):
     
     ax.set_xlabel("System Accuracy (%)", fontsize=12)
     ax.set_ylabel("Cost per 1K Queries ($)", fontsize=12)
-    ax.set_yscale("log")  # Log scale for better visibility of cost range
     ax.set_title("Cost vs Accuracy Pareto Frontier\n(In-Distribution Only, dashed = all-cloud baseline)", 
                 fontsize=13, fontweight="bold")
     
     ax.legend(loc="upper left")
-    ax.grid(True, alpha=0.3, which="both")
+    ax.grid(True, alpha=0.3)
     ax.set_xlim(35, 102)
     
     plt.tight_layout()
@@ -587,7 +586,7 @@ def create_figure4_cost_savings_bar(cost_results: dict, all_results: dict, outpu
     """
     Create bar chart showing $ saved at a target system accuracy.
     """
-    # Target accuracy: pick the closest threshold to this system accuracy
+    # Target accuracy: find cheapest threshold that achieves >= this accuracy
     target_accuracy = 0.90
     
     models = ["b_suffix", "b_suffix_supergpqa", "b_suffix_wildchat", "b_suffix_natural_reasoning"]
@@ -598,16 +597,9 @@ def create_figure4_cost_savings_bar(cost_results: dict, all_results: dict, outpu
     x = np.arange(len(datasets))
     width = 0.2
     
-    # Hatching patterns for ID bars
-    hatch_patterns = ["//", "\\\\", "xx", "++"]
-    
-    # Track which bars couldn't hit target
-    cant_hit_target = []
-    
     for idx, model in enumerate(models):
         savings = []
         thresholds_used = []
-        actual_accs = []
         
         for dataset in datasets:
             key = (model, dataset)
@@ -618,74 +610,65 @@ def create_figure4_cost_savings_bar(cost_results: dict, all_results: dict, outpu
                 data = cost_results[key]
                 all_cloud = data.get("all_cloud_cost_per_1k", 0)
                 
-                # Find threshold closest to target accuracy
+                # Find cheapest threshold that achieves >= target accuracy
+                # (closest to target from above)
                 best_saving = None
-                best_delta = None
-                best_thresh = None
                 best_acc = None
+                best_thresh = None
                 for thresh in THRESHOLDS:
                     t = data.get("thresholds", {}).get(str(thresh), {})
                     sys_acc = t.get("system_accuracy", 0)
                     cost = t.get("cost_per_1k", all_cloud)
-
-                    delta = abs(sys_acc - target_accuracy)
                     saving = all_cloud - cost
-                    if best_delta is None or delta < best_delta:
-                        best_delta = delta
-                        best_saving = saving
-                        best_thresh = thresh
-                        best_acc = sys_acc
+
+                    # Only consider if >= target
+                    if sys_acc >= target_accuracy:
+                        # Pick the one closest to target (= cheapest that still hits target)
+                        if best_acc is None or sys_acc < best_acc:
+                            best_acc = sys_acc
+                            best_saving = saving
+                            best_thresh = thresh
                 
-                # Check if we're far from target (can't really hit it)
-                if best_acc is not None and abs(best_acc - target_accuracy) > 0.1:
-                    cant_hit_target.append((model, dataset))
-                
-                savings.append(best_saving if best_saving is not None else 0)
-                thresholds_used.append(best_thresh)
-                actual_accs.append(best_acc)
+                # Only show bar if we can hit target
+                if best_saving is not None:
+                    savings.append(best_saving)
+                    thresholds_used.append(best_thresh)
+                else:
+                    savings.append(0)
+                    thresholds_used.append(None)
             else:
                 savings.append(0)
                 thresholds_used.append(None)
-                actual_accs.append(None)
         
         offset = (idx - 1.5) * width
         bars = ax.bar(x + offset, savings, width, 
                      label=MODEL_NAMES.get(model, model))
         
-        # Style bars: ID gets hatching, can't-hit-target gets lighter color
+        # Style bars: ID gets hatching (same pattern for all ID)
         for i, (dataset, bar) in enumerate(zip(datasets, bars)):
             is_id = (model == "b_suffix" and dataset == "mmlu") or \
                     (model == f"b_suffix_{dataset}")
             
-            # ID bars get hatching pattern
+            # ID bars get hatching pattern (same for all)
             if is_id:
-                bar.set_hatch(hatch_patterns[idx])
+                bar.set_hatch("//")
                 bar.set_edgecolor("black")
                 bar.set_linewidth(1.5)
             
-            # Mark bars that couldn't hit target
-            if (model, dataset) in cant_hit_target:
-                bar.set_alpha(0.5)
-            
-            # Add threshold annotation above bar
+            # Add threshold annotation above bar (only if shown)
             if thresholds_used[i] is not None and savings[i] > 0:
                 ax.text(x[i] + offset, savings[i] + 1, f"τ={thresholds_used[i]}", 
                        ha="center", va="bottom", fontsize=7, rotation=90)
     
     ax.set_xlabel("Evaluation Dataset", fontsize=12)
     ax.set_ylabel("$ Saved per 1K Queries (vs All-Cloud)", fontsize=12)
-    ax.set_title(f"Cost Savings at ~{int(target_accuracy*100)}% System Accuracy\n(Hatched = In-Distribution, Faded = couldn't reach target)", 
+    ax.set_title(f"Cost Savings at ≥{int(target_accuracy*100)}% System Accuracy\n(Hatched = In-Distribution)", 
                 fontsize=13, fontweight="bold")
     
     ax.set_xticks(x)
     ax.set_xticklabels([DATASET_NAMES.get(d, d) for d in datasets])
     ax.legend(title="Model trained on", loc="upper right")
     ax.grid(True, alpha=0.3, axis="y")
-    
-    # Add footnote
-    if cant_hit_target:
-        ax.text(0.01, -0.12, f"Note: Faded bars couldn't achieve {int(target_accuracy*100)}% accuracy (closest threshold shown).",
-               transform=ax.transAxes, fontsize=9, style="italic", color="gray")
     
     plt.tight_layout()
     plt.savefig(output_path, dpi=150, bbox_inches="tight")
@@ -724,7 +707,7 @@ def create_figure5_reliability_grid(calib_data: dict, output_path: str):
     models = ["b_suffix", "b_suffix_supergpqa", "b_suffix_wildchat", "b_suffix_natural_reasoning"]
     datasets = ["mmlu", "supergpqa", "wildchat", "natural_reasoning"]
 
-    fig, axes = plt.subplots(4, 4, figsize=(14, 12), sharex=True, sharey=True)
+    fig, axes = plt.subplots(4, 4, figsize=(15, 13), sharex=True, sharey=True)
 
     for i, model in enumerate(models):
         for j, dataset in enumerate(datasets):
@@ -758,17 +741,18 @@ def create_figure5_reliability_grid(calib_data: dict, output_path: str):
             if i == 0:
                 ax.set_title(DATASET_NAMES.get(dataset, dataset), fontsize=11, fontweight="bold")
             if j == 0:
-                ax.set_ylabel(MODEL_NAMES.get(model, model), fontsize=10)
+                ax.set_ylabel(MODEL_NAMES.get(model, model), fontsize=10, labelpad=10)
 
             ax.set_xlim(0.0, 1.0)
             ax.set_ylim(0.0, 1.0)
             ax.grid(True, alpha=0.3)
 
-    fig.text(0.5, 0.02, "Mean Confidence", ha="center", fontsize=12)
-    fig.text(0.02, 0.5, "Empirical Accuracy", va="center", rotation="vertical", fontsize=12)
+    # Labels positioned further from graphs
+    fig.text(0.5, 0.005, "Mean Confidence", ha="center", fontsize=12)
+    fig.text(0.008, 0.5, "Empirical Accuracy", va="center", rotation="vertical", fontsize=12)
     plt.suptitle("Reliability Diagrams (Calibration)\n(Blue = In-Distribution, Gray = Out-of-Distribution)",
-                 fontsize=14, fontweight="bold", y=1.02)
-    plt.tight_layout()
+                 fontsize=14, fontweight="bold", y=0.995)
+    plt.tight_layout(rect=[0.04, 0.03, 1, 0.96])
     plt.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close()
     print(f"✓ Saved Figure 5: {output_path}")
