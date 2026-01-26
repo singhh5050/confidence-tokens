@@ -36,6 +36,7 @@ from data import (
     get_tokenized_dataset, 
     CONF_POSITIONS,
     create_train_test_split,
+    create_multi_dataset_split,
     FINETUNE_MODEL,
     DEFAULT_TRACE_MODEL,
 )
@@ -79,7 +80,13 @@ Examples:
         type=str,
         default="mmlu_pro",
         choices=["mmlu_pro", "supergpqa", "wildchat", "natural_reasoning"],
-        help="Dataset to train on (default: mmlu_pro)"
+        help="Dataset to train on (default: mmlu_pro). Ignored if --datasets is provided."
+    )
+    parser.add_argument(
+        "--datasets",
+        type=str,
+        default=None,
+        help="Comma-separated list of datasets for multi-dataset training (e.g., 'mmlu_pro,supergpqa,wildchat,natural_reasoning')"
     )
     parser.add_argument(
         "--max-samples",
@@ -228,6 +235,16 @@ Examples:
     # Format descriptions for conf position
     pos_fmt = "{Q} <|CONF|> {A}" if conf_pos == "suffix" else "{Q} {A} <|CONF|>"
     
+    # Parse multi-dataset argument if provided
+    dataset_list = None
+    if args.datasets:
+        dataset_list = [d.strip() for d in args.datasets.split(",")]
+        valid_datasets = ["mmlu_pro", "supergpqa", "wildchat", "natural_reasoning"]
+        for d in dataset_list:
+            if d not in valid_datasets:
+                print(f"❌ Unknown dataset: {d}. Valid options: {valid_datasets}")
+                sys.exit(1)
+    
     print("=" * 70)
     print("CONFIDENCE TOKEN TRAINING")
     print("=" * 70)
@@ -235,7 +252,10 @@ Examples:
     print(f"\nConfiguration:")
     print(f"  Model to fine-tune: {args.model}")
     print(f"  Trace model (data): {args.trace_model}")
-    print(f"  Dataset: {args.dataset}")
+    if dataset_list:
+        print(f"  Datasets (multi): {', '.join(dataset_list)}")
+    else:
+        print(f"  Dataset: {args.dataset}")
     print(f"  Train/Test split: {100*(1-args.test_size):.0f}%/{100*args.test_size:.0f}% (seed={args.seed})")
     print(f"  Output: {args.output_dir}")
     print(f"  Epochs: {args.epochs}")
@@ -293,19 +313,31 @@ Examples:
     
     # Prepare datasets with proper train/test split
     print("\n" + "-" * 70)
-    print(f"Preparing {args.dataset} dataset with train/test split...")
+    if dataset_list:
+        print(f"Preparing multi-dataset ({', '.join(dataset_list)}) with train/test split...")
+    else:
+        print(f"Preparing {args.dataset} dataset with train/test split...")
     print("-" * 70)
     
     # Create the split and save metadata
     import os
     os.makedirs(args.output_dir, exist_ok=True)
     
-    raw_train, raw_test, split_metadata = create_train_test_split(
-        dataset_name=args.dataset,
-        test_size=args.test_size,
-        seed=args.seed,
-        output_dir=args.output_dir,  # Saves split_metadata.json here
-    )
+    # Use multi-dataset or single-dataset loading based on args
+    if dataset_list:
+        raw_train, raw_test, split_metadata = create_multi_dataset_split(
+            dataset_names=dataset_list,
+            test_size=args.test_size,
+            seed=args.seed,
+            output_dir=args.output_dir,  # Saves split_metadata.json here
+        )
+    else:
+        raw_train, raw_test, split_metadata = create_train_test_split(
+            dataset_name=args.dataset,
+            test_size=args.test_size,
+            seed=args.seed,
+            output_dir=args.output_dir,  # Saves split_metadata.json here
+        )
     
     # Limit samples if requested (for quick testing)
     if args.max_samples:
@@ -347,14 +379,18 @@ Examples:
             "conf_token_position": -1,
         }
     
+    # Get columns to remove (handle multi-dataset case where _source_dataset is added)
+    train_columns = raw_train.column_names
+    test_columns = raw_test.column_names
+    
     train_dataset = raw_train.map(
         format_example, 
-        remove_columns=raw_train.column_names,
+        remove_columns=train_columns,
         desc=f"Formatting train set ({args.conf_position})"
     )
     eval_dataset = raw_test.map(
         format_example,
-        remove_columns=raw_test.column_names,
+        remove_columns=test_columns,
         desc=f"Formatting test set ({args.conf_position})"
     )
     
@@ -434,6 +470,8 @@ Examples:
         "precision": "bf16" if dtype == torch.bfloat16 else ("fp16" if dtype == torch.float16 else "fp32"),
         "git_commit": git_commit,
         "split_metadata": split_metadata,
+        "is_multi_dataset": dataset_list is not None,
+        "dataset_list": dataset_list,
         "dropped_counts": {
             "missing_trace_model_train": dropped_train,
             "missing_trace_model_test": dropped_test,

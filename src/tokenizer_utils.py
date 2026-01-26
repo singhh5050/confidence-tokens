@@ -52,16 +52,16 @@ def add_conf_token(tokenizer: PreTrainedTokenizer, model: PreTrainedModel) -> in
     # This provides a reasonable starting point for training
     # Only do this if we actually added new tokens (avoid NaN from empty slice)
     if num_added > 0:
-        with torch.no_grad():
-            embedding_layer = model.get_input_embeddings()
-            
-            # Compute mean of all existing embeddings (excluding the newly added ones)
-            mean_embedding = embedding_layer.weight[:-num_added].mean(dim=0)
-            
-            # Assign mean embedding to the new token
-            embedding_layer.weight[-1] = mean_embedding
-            
-            print(f"Initialized <|CONF|> embedding with mean of existing embeddings")
+    with torch.no_grad():
+        embedding_layer = model.get_input_embeddings()
+        
+        # Compute mean of all existing embeddings (excluding the newly added ones)
+        mean_embedding = embedding_layer.weight[:-num_added].mean(dim=0)
+        
+        # Assign mean embedding to the new token
+        embedding_layer.weight[-1] = mean_embedding
+        
+        print(f"Initialized <|CONF|> embedding with mean of existing embeddings")
     else:
         print("Skipped embedding init (token already existed)")
     

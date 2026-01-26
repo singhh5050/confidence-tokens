@@ -60,6 +60,71 @@ def compute_ace(confidences, correctness, n_bins=10):
     return ace / n
 
 
+# =============================================================================
+# Temperature Scaling
+# =============================================================================
+
+def learn_temperature(
+    confidences: np.ndarray, 
+    labels: np.ndarray, 
+    init_T: float = 1.5
+) -> float:
+    """
+    Learn optimal temperature via NLL minimization on validation set.
+    
+    Temperature scaling is a post-hoc calibration method that learns a single
+    scalar T to rescale logits: calibrated_prob = sigmoid(logit / T).
+    
+    Args:
+        confidences: Raw confidence scores in [0, 1] from the model
+        labels: Binary correctness labels (0 or 1)
+        init_T: Initial temperature guess (default: 1.5)
+        
+    Returns:
+        Optimal temperature T that minimizes NLL
+    """
+    from scipy.optimize import minimize_scalar
+    
+    # Convert confidences to logits (inverse sigmoid)
+    eps = 1e-10
+    confidences = np.clip(confidences, eps, 1 - eps)
+    logits = np.log(confidences / (1 - confidences))
+    
+    def nll(T):
+        """Negative log-likelihood with temperature scaling."""
+        if T <= 0:
+            return float('inf')
+        scaled_probs = 1 / (1 + np.exp(-logits / T))
+        scaled_probs = np.clip(scaled_probs, eps, 1 - eps)
+        return -np.mean(
+            labels * np.log(scaled_probs) + 
+            (1 - labels) * np.log(1 - scaled_probs)
+        )
+    
+    result = minimize_scalar(nll, bounds=(0.1, 10.0), method='bounded')
+    return result.x
+
+
+def apply_temperature(confidences: np.ndarray, T: float) -> np.ndarray:
+    """
+    Apply temperature scaling to confidence scores.
+    
+    Converts probabilities to logits, scales by temperature, then back to probs:
+    calibrated_prob = sigmoid(logit / T)
+    
+    Args:
+        confidences: Raw confidence scores in [0, 1]
+        T: Temperature parameter (T > 1 softens, T < 1 sharpens)
+        
+    Returns:
+        Temperature-scaled confidence scores
+    """
+    eps = 1e-10
+    confidences = np.clip(confidences, eps, 1 - eps)
+    logits = np.log(confidences / (1 - confidences))
+    return 1 / (1 + np.exp(-logits / T))
+
+
 def format_prompt_for_inference(question: str, conf_position: str) -> str:
     """Format prompt for confidence extraction (no answer, just up to <|CONF|>)."""
     if conf_position == "suffix":
@@ -303,12 +368,15 @@ def evaluate_confidence(
     num_eval: int = 500,
     approach: str = "a",
     seed: int = 42,
+    temperature_scaling: bool = False,
 ):
     """Run confidence evaluation on test data."""
     
     print(f"\n{'='*60}")
     print(f"Evaluating: {model_path}")
     print(f"Position: {conf_position}, Method: {method}, Approach: {approach}")
+    if temperature_scaling:
+        print(f"Temperature Scaling: ENABLED (will learn T on calibration set)")
     print(f"{'='*60}\n")
     
     # Load model and tokenizer
@@ -343,6 +411,12 @@ def evaluate_confidence(
     if method == "hidden":
         if approach == "b":
             confidence_head = load_confidence_head(model_path, hidden_size, device, dtype)
+            # FAIL FAST: Approach B requires pre-trained confidence head
+            if confidence_head is None:
+                raise FileNotFoundError(
+                    f"method='hidden' with approach='b' requires confidence_head.pt in {model_path}. "
+                    "Either retrain the model with supervised confidence loss, or use --method entropy."
+                )
         # For approach A, we'll train a probe below
     
     # Load test dataset using split metadata (ensures same test set as training)
@@ -362,19 +436,69 @@ def evaluate_confidence(
     with open(split_metadata_path, "r") as f:
         split_metadata = json.load(f)
     
-    print(f"  Dataset: {split_metadata['dataset_name']}")
-    print(f"  Test size: {split_metadata['test_size']} (seed={split_metadata['seed']})")
-    print(f"  Expected test samples: {split_metadata['test_samples']}")
+    # Detect schema: single vs multi-dataset
+    is_multi_dataset = split_metadata.get("is_multi_dataset", False) or split_metadata.get("metadata_schema") == "multi"
+    metadata_schema = "multi" if is_multi_dataset else "single"
     
-    # Recreate the exact split
-    full_dataset = load_dataset(split_metadata['dataset_path'], split='train')
-    split = full_dataset.train_test_split(
-        test_size=split_metadata['test_size'],
-        seed=split_metadata['seed']
-    )
-    train_dataset = split['train']
-    dataset = split['test']
-    print(f"✓ Loaded test set: {len(dataset)} samples (held out during training)")
+    if is_multi_dataset:
+        # Multi-dataset: reconstruct each dataset and concatenate
+        from datasets import concatenate_datasets
+        
+        dataset_names = split_metadata["dataset_names"]
+        test_size = split_metadata["test_size"]
+        split_seed = split_metadata["seed"]
+        per_dataset = split_metadata["per_dataset"]
+        
+        print(f"  Schema: MULTI-DATASET")
+        print(f"  Datasets: {', '.join(dataset_names)}")
+        print(f"  Test size: {test_size} (seed={split_seed})")
+        
+        all_train = []
+        all_test = []
+        for ds_name in dataset_names:
+            ds_info = per_dataset[ds_name]
+            ds_path = ds_info["dataset_path"]
+            full_ds = load_dataset(ds_path, split="train")
+            expected_fingerprint = ds_info.get("dataset_fingerprint")
+            actual_fingerprint = getattr(full_ds, "_fingerprint", None)
+            if expected_fingerprint and actual_fingerprint and expected_fingerprint != actual_fingerprint:
+                raise RuntimeError(
+                    f"Dataset fingerprint mismatch for {ds_name}. "
+                    f"Expected {expected_fingerprint}, got {actual_fingerprint}. "
+                    "Refusing to evaluate on a potentially different dataset version."
+                )
+            ds_split = full_ds.train_test_split(test_size=test_size, seed=split_seed)
+            all_train.append(ds_split["train"])
+            all_test.append(ds_split["test"])
+            print(f"    {ds_name}: {len(ds_split['train'])} train, {len(ds_split['test'])} test")
+        
+        train_dataset = concatenate_datasets(all_train)
+        dataset = concatenate_datasets(all_test)
+        print(f"✓ Loaded multi-dataset test set: {len(dataset)} samples (held out during training)")
+    else:
+        # Single-dataset: original behavior
+        print(f"  Schema: SINGLE-DATASET")
+        print(f"  Dataset: {split_metadata['dataset_name']}")
+        print(f"  Test size: {split_metadata['test_size']} (seed={split_metadata['seed']})")
+        print(f"  Expected test samples: {split_metadata['test_samples']}")
+        
+        # Recreate the exact split
+        full_dataset = load_dataset(split_metadata['dataset_path'], split='train')
+        expected_fingerprint = split_metadata.get("dataset_fingerprint")
+        actual_fingerprint = getattr(full_dataset, "_fingerprint", None)
+        if expected_fingerprint and actual_fingerprint and expected_fingerprint != actual_fingerprint:
+            raise RuntimeError(
+                "Dataset fingerprint mismatch for single-dataset evaluation. "
+                f"Expected {expected_fingerprint}, got {actual_fingerprint}. "
+                "Refusing to evaluate on a potentially different dataset version."
+            )
+        split = full_dataset.train_test_split(
+            test_size=split_metadata['test_size'],
+            seed=split_metadata['seed']
+        )
+        train_dataset = split['train']
+        dataset = split['test']
+        print(f"✓ Loaded test set: {len(dataset)} samples (held out during training)")
     
     # Get model name - use the 7B model we trained on, not the 32B
     sample = dataset[0]['model_metrics']
@@ -436,9 +560,13 @@ def evaluate_confidence(
             model, tokenizer, train_dataset, conf_position, device, dtype, num_samples=500, target_model_name=model_name,
             debug_log=debug_log
         )
+        # FAIL FAST: probe training must succeed for hidden method
         if confidence_head is None:
-            print("Failed to train probe, falling back to entropy method")
-            method = "entropy"
+            raise RuntimeError(
+                "Failed to train probe for method='hidden' with approach='a'. "
+                "This may happen if there are too few valid training samples or if the <|CONF|> token is missing. "
+                "Use --method entropy explicitly if you want entropy-based confidence."
+            )
     
     # Evaluate
     print(f"\nEvaluating on {num_eval} samples...")
@@ -520,6 +648,77 @@ def evaluate_confidence(
     confidences = np.array(confidences)
     labels = np.array(labels)
     
+    # Temperature scaling: calibrate on TRAIN, evaluate on full TEST
+    learned_temperature = None
+    calibration_size = None
+    raw_confidences = confidences.copy()  # Keep raw for comparison
+    
+    if temperature_scaling:
+        # Guard: temperature scaling only valid for hidden method (probabilistic output)
+        if method != "hidden":
+            raise ValueError(
+                f"Temperature scaling is only valid for method='hidden' (got '{method}'). "
+                "Entropy and top-k outputs are not probabilities and cannot be calibrated via temperature scaling. "
+                "Use isotonic regression or Platt scaling for non-probabilistic confidence scores."
+            )
+        
+        # Collect confidences on train calibration subset
+        print(f"\n--- Temperature Scaling (calibrate on train) ---")
+        cal_fraction = 0.15  # Use 15% of train for calibration
+        cal_size = max(50, int(len(train_dataset) * cal_fraction))
+        cal_size = min(cal_size, 500, len(train_dataset))  # Cap at 500
+        
+        rng = np.random.RandomState(seed)
+        cal_indices = rng.choice(len(train_dataset), size=cal_size, replace=False)
+        cal_dataset = train_dataset.select(cal_indices.tolist())
+        
+        print(f"Collecting calibration confidences on {len(cal_dataset)} train samples...")
+        cal_confs = []
+        cal_labels_list = []
+        
+        for example in tqdm(cal_dataset, desc="Calibration"):
+            question = example['problem']
+            answer = example['model_metrics'][model_name].get('lm_response', '')
+            is_correct = example['model_metrics'][model_name].get('evaluation', {}).get('is_correct', False)
+            
+            try:
+                if conf_position == "suffix":
+                    prompt = f"{question} <|CONF|>"
+                else:
+                    prompt = f"{question} {answer} <|CONF|>"
+                
+                inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=4096).to(device)
+                input_ids = inputs["input_ids"][0].tolist()
+                if conf_token_id not in input_ids:
+                    continue
+                conf_pos = input_ids.index(conf_token_id)
+                
+                conf = get_confidence_from_hidden(model, inputs, conf_pos, confidence_head)
+                cal_confs.append(conf)
+                cal_labels_list.append(1 if is_correct else 0)
+            except Exception:
+                continue
+        
+        if len(cal_confs) < 30:
+            print(f"⚠ Only {len(cal_confs)} valid calibration samples. Skipping temperature scaling.")
+            learned_temperature = None
+        else:
+            cal_confs = np.array(cal_confs)
+            cal_labels_arr = np.array(cal_labels_list)
+            calibration_size = len(cal_confs)
+            
+            learned_temperature = learn_temperature(cal_confs, cal_labels_arr)
+            print(f"Learned temperature T = {learned_temperature:.4f} from {calibration_size} train samples")
+            
+            # Apply temperature to test confidences (full test set)
+            raw_ece = compute_ece(confidences, labels)
+            confidences = apply_temperature(confidences, learned_temperature)
+            calibrated_ece = compute_ece(confidences, labels)
+            
+            print(f"Raw test ECE:        {raw_ece:.4f}")
+            print(f"Calibrated test ECE: {calibrated_ece:.4f}")
+            print(f"--- Calibrated on train, evaluating on full test ({len(labels)} samples) ---\n")
+    
     # Basic stats
     print(f"\nConfidence stats:")
     print(f"  Mean: {confidences.mean():.4f}")
@@ -554,6 +753,7 @@ def evaluate_confidence(
         "conf_position": conf_position,
         "method": method,
         "approach": approach,
+        "metadata_schema": metadata_schema,  # "single" or "multi"
         "num_samples": len(confidences),
         "confidence_mean": float(confidences.mean()),
         "confidence_std": float(confidences.std()),
@@ -562,6 +762,10 @@ def evaluate_confidence(
         "brier_score": float(brier) if brier else None,
         "ece": float(ece) if ece is not None else None,
         "ace": float(ace) if ace is not None else None,
+        "temperature_scaling": temperature_scaling,
+        "learned_temperature": float(learned_temperature) if learned_temperature else None,
+        "calibration_source": "train" if (temperature_scaling and learned_temperature) else None,
+        "calibration_size": calibration_size,
     }
     
     # Coverage analysis at thresholds
@@ -573,7 +777,12 @@ def evaluate_confidence(
             float(labels[route_self].mean()) if route_self.any() else None
         )
     
-    results_path = os.path.join(model_path, f"eval_results_{method}.json")
+    # Build filename with schema and temp-scaling suffixes to prevent conflation
+    suffix_parts = [metadata_schema]  # Always include schema
+    if temperature_scaling and learned_temperature:
+        suffix_parts.append("temp_scaled")
+    suffix = "_" + "_".join(suffix_parts)
+    results_path = os.path.join(model_path, f"eval_results_{method}{suffix}.json")
     with open(results_path, "w") as f:
         json.dump(results, f, indent=2)
     print(f"\nResults saved to: {results_path}")
@@ -619,7 +828,7 @@ def evaluate_confidence(
             if min_correct > max_incorrect:
                 print("⚠️  PERFECT SEPARATION DETECTED - this is suspicious!")
     
-    debug_log_path = os.path.join(model_path, f"eval_debug_{method}.json")
+    debug_log_path = os.path.join(model_path, f"eval_debug_{method}{suffix}.json")
     with open(debug_log_path, "w") as f:
         json.dump(debug_log, f, indent=2)
     print(f"Debug log saved to: {debug_log_path}")
@@ -642,6 +851,8 @@ def main():
     parser.add_argument("--output-base", type=str, 
                        default="/workspace/confidence-tokens/outputs",
                        help="Base path for outputs")
+    parser.add_argument("--temperature-scaling", action="store_true",
+                       help="Apply post-hoc temperature scaling (learns T on held-out calibration set)")
     args = parser.parse_args()
     
     # Parse experiment name
@@ -660,6 +871,7 @@ def main():
         num_eval=args.num_eval,
         approach=approach,
         seed=args.seed,
+        temperature_scaling=args.temperature_scaling,
     )
 
 

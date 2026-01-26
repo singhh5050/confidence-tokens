@@ -95,6 +95,7 @@ def create_train_test_split(
     
     # Create metadata for tracking
     split_metadata = {
+        "metadata_schema": "single",  # Explicit schema tag for single-dataset
         "dataset_name": dataset_name,
         "dataset_path": config["path"],
         "dataset_fingerprint": dataset_fingerprint,
@@ -182,6 +183,97 @@ def get_test_dataset_from_metadata(metadata: Dict, tokenizer=None) -> Dataset:
     return test_dataset
 
 
+def create_multi_dataset_split(
+    dataset_names: List[str],
+    test_size: float = 0.2,
+    seed: int = 42,
+    output_dir: Optional[str] = None,
+) -> Tuple[Dataset, Dataset, Dict]:
+    """
+    Create reproducible train/test splits for multiple datasets and concatenate them.
+    
+    Args:
+        dataset_names: List of dataset names (keys in DATASET_CONFIGS)
+        test_size: Fraction of data for test set (default: 0.2 = 20%)
+        seed: Random seed for reproducibility (default: 42)
+        output_dir: If provided, saves split metadata to this directory
+        
+    Returns:
+        Tuple of (combined_train_dataset, combined_test_dataset, combined_metadata)
+    """
+    from datasets import concatenate_datasets
+    
+    all_train = []
+    all_test = []
+    per_dataset_metadata = {}
+    
+    for dataset_name in dataset_names:
+        if dataset_name not in DATASET_CONFIGS:
+            raise ValueError(f"Unknown dataset: {dataset_name}. Available: {list(DATASET_CONFIGS.keys())}")
+        
+        config = DATASET_CONFIGS[dataset_name]
+        
+        # Load the full dataset
+        print(f"Loading {dataset_name} from {config['path']}...")
+        full_dataset = load_dataset(config["path"], split="train")
+        dataset_fingerprint = getattr(full_dataset, "_fingerprint", None)
+        
+        # Create split with same seed for reproducibility
+        split = full_dataset.train_test_split(test_size=test_size, seed=seed)
+        
+        # Add source dataset column for tracking
+        def add_source(example):
+            example["_source_dataset"] = dataset_name
+            return example
+        
+        train_ds = split["train"].map(add_source, desc=f"Adding source tag to {dataset_name} train")
+        test_ds = split["test"].map(add_source, desc=f"Adding source tag to {dataset_name} test")
+        
+        all_train.append(train_ds)
+        all_test.append(test_ds)
+        
+        per_dataset_metadata[dataset_name] = {
+            "dataset_path": config["path"],
+            "dataset_fingerprint": dataset_fingerprint,
+            "total_samples": len(full_dataset),
+            "train_samples": len(train_ds),
+            "test_samples": len(test_ds),
+        }
+        
+        print(f"  {dataset_name}: {len(train_ds)} train, {len(test_ds)} test")
+    
+    # Concatenate all datasets
+    combined_train = concatenate_datasets(all_train)
+    combined_test = concatenate_datasets(all_test)
+    
+    # Create combined metadata
+    combined_metadata = {
+        "metadata_schema": "multi",  # Explicit schema tag for multi-dataset
+        "dataset_names": dataset_names,
+        "is_multi_dataset": True,
+        "total_train_samples": len(combined_train),
+        "total_test_samples": len(combined_test),
+        "test_size": test_size,
+        "seed": seed,
+        "per_dataset": per_dataset_metadata,
+    }
+    
+    print(f"\n✓ Combined split created:")
+    print(f"  Datasets: {', '.join(dataset_names)}")
+    print(f"  Total train: {len(combined_train)}")
+    print(f"  Total test:  {len(combined_test)}")
+    
+    # Save metadata if output_dir provided
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+        metadata_path = os.path.join(output_dir, "split_metadata.json")
+        with open(metadata_path, "w") as f:
+            json.dump(combined_metadata, f, indent=2)
+        print(f"✓ Split metadata saved to: {metadata_path}")
+    
+    return combined_train, combined_test, combined_metadata
+
+
 def extract_from_nested(example: Dict, model_name: str = DEFAULT_TRACE_MODEL) -> Dict:
     """
     Extract question, answer, and correctness from nested dataset structure.
@@ -220,7 +312,7 @@ def extract_from_nested(example: Dict, model_name: str = DEFAULT_TRACE_MODEL) ->
     if evaluation is None:
         is_correct = False  # Treat null evaluation as incorrect
     else:
-    is_correct = evaluation.get("is_correct", False)
+        is_correct = evaluation.get("is_correct", False)
     
     return {
         "question": question,
