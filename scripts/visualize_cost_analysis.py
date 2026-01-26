@@ -338,7 +338,7 @@ def create_figure1_coverage_accuracy_grid(all_results: dict, output_path: str):
     models = ["b_suffix", "b_suffix_supergpqa", "b_suffix_wildchat", "b_suffix_natural_reasoning"]
     datasets = ["mmlu", "supergpqa", "wildchat", "natural_reasoning"]
     
-    fig, axes = plt.subplots(4, 4, figsize=(14, 12), sharex=True, sharey=True)
+    fig, axes = plt.subplots(4, 4, figsize=(15, 13), sharex=True, sharey=True)
     
     for i, model in enumerate(models):
         for j, dataset in enumerate(datasets):
@@ -355,6 +355,7 @@ def create_figure1_coverage_accuracy_grid(all_results: dict, output_path: str):
                 
                 coverages = []
                 local_accs = []
+                thresh_list = []
                 
                 for thresh in THRESHOLDS:
                     r = routing.get(str(thresh), {})
@@ -363,6 +364,7 @@ def create_figure1_coverage_accuracy_grid(all_results: dict, output_path: str):
                     if cov is not None and acc is not None:
                         coverages.append(cov * 100)
                         local_accs.append(acc * 100)
+                        thresh_list.append(thresh)
                 
                 if coverages:
                     # Highlight diagonal (in-distribution)
@@ -375,6 +377,22 @@ def create_figure1_coverage_accuracy_grid(all_results: dict, output_path: str):
                     
                     ax.plot(coverages, local_accs, marker=marker, color=color, 
                            linewidth=linewidth, markersize=4)
+                    
+                    # Annotate τ=0.5 point (main operating point)
+                    if 0.5 in thresh_list:
+                        idx_05 = thresh_list.index(0.5)
+                        ax.annotate("τ=0.5", (coverages[idx_05], local_accs[idx_05]),
+                                   textcoords="offset points", xytext=(-15, 8),
+                                   fontsize=7, color=color, fontweight="bold",
+                                   bbox=dict(boxstyle="round,pad=0.2", facecolor="white", alpha=0.7))
+                    
+                    # Add arrow showing τ direction (only on first valid cell per row)
+                    if j == 0 and len(coverages) >= 2:
+                        ax.annotate("", xy=(coverages[-1], local_accs[-1]), 
+                                   xytext=(coverages[0], local_accs[0]),
+                                   arrowprops=dict(arrowstyle="->", color=color, lw=1, alpha=0.5))
+                        ax.text(0.5, 0.15, "τ↑", transform=ax.transAxes, fontsize=8, 
+                               color=color, alpha=0.7, ha="center")
                     
                     # Add AUROC annotation
                     auroc = data.get("auroc")
@@ -394,24 +412,24 @@ def create_figure1_coverage_accuracy_grid(all_results: dict, output_path: str):
             if i == 0:
                 ax.set_title(DATASET_NAMES.get(dataset, dataset), fontsize=11, fontweight="bold")
             if j == 0:
-                ax.set_ylabel(MODEL_NAMES.get(model, model), fontsize=10)
+                ax.set_ylabel(MODEL_NAMES.get(model, model), fontsize=10, labelpad=10)
             
             ax.set_xlim(0, 105)
             ax.set_ylim(30, 100)
             ax.grid(True, alpha=0.3)
     
-    # Common labels
-    fig.text(0.5, 0.02, "Coverage (% routed locally)", ha="center", fontsize=12)
-    fig.text(0.02, 0.5, "Local Accuracy (%)", va="center", rotation="vertical", fontsize=12)
+    # Common labels with more padding
+    fig.text(0.5, 0.01, "Coverage (% routed locally)", ha="center", fontsize=12)
+    fig.text(0.01, 0.5, "Local Accuracy (%)", va="center", rotation="vertical", fontsize=12)
     
     # Row/column headers
-    fig.text(0.5, 0.98, "Evaluation Dataset →", ha="center", fontsize=11, style="italic")
-    fig.text(0.02, 0.98, "Model ↓", ha="left", fontsize=11, style="italic")
+    fig.text(0.5, 0.99, "Evaluation Dataset →", ha="center", fontsize=11, style="italic")
+    fig.text(0.01, 0.99, "Model ↓", ha="left", fontsize=11, style="italic")
     
     plt.suptitle("Coverage vs Local Accuracy\n(Blue = In-Distribution, Gray = Out-of-Distribution)", 
                  fontsize=14, fontweight="bold", y=1.02)
     
-    plt.tight_layout()
+    plt.tight_layout(rect=[0.03, 0.03, 1, 0.98])
     plt.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close()
     print(f"✓ Saved Figure 1: {output_path}")
@@ -496,6 +514,7 @@ def create_figure3_cost_pareto(cost_results: dict, output_path: str):
     fig, ax = plt.subplots(figsize=(10, 7))
     
     colors = ["tab:blue", "tab:orange", "tab:green", "tab:red"]
+    baselines = {}  # Store all-cloud baseline per dataset
     
     for idx, (model, dataset) in enumerate(id_combos):
         key = (model, dataset)
@@ -509,9 +528,11 @@ def create_figure3_cost_pareto(cost_results: dict, output_path: str):
         
         data = cost_results[key]
         thresholds_data = data.get("thresholds", {})
+        baselines[dataset] = data.get("all_cloud_cost_per_1k", 0)
         
         system_accs = []
         costs = []
+        thresh_list = []
         
         for thresh in THRESHOLDS:
             t = thresholds_data.get(str(thresh), {})
@@ -521,28 +542,40 @@ def create_figure3_cost_pareto(cost_results: dict, output_path: str):
             if sys_acc is not None and cost is not None:
                 system_accs.append(sys_acc * 100)
                 costs.append(cost)
+                thresh_list.append(thresh)
         
         if system_accs:
             label = DATASET_NAMES.get(dataset, dataset)
             ax.plot(system_accs, costs, marker="o", linewidth=2.5, 
                    markersize=6, label=label, color=colors[idx])
             
-            # Annotate threshold at a few points
-            for i, thresh in enumerate(THRESHOLDS):
-                if thresh in [0.3, 0.5, 0.7] and i < len(system_accs):
+            # Only annotate τ=0.3 and τ=0.7 to reduce clutter
+            for i, thresh in enumerate(thresh_list):
+                if thresh in [0.3, 0.7] and i < len(system_accs):
+                    # Offset based on position to reduce overlap
+                    y_offset = 8 if thresh == 0.3 else -12
                     ax.annotate(f"τ={thresh}", (system_accs[i], costs[i]),
-                               textcoords="offset points", xytext=(5, 5),
-                               fontsize=8, alpha=0.7)
+                               textcoords="offset points", xytext=(5, y_offset),
+                               fontsize=8, alpha=0.8, color=colors[idx])
     
-    # Note: baseline costs differ by dataset; no global baseline lines shown.
+    # Add horizontal dashed lines for all-cloud baseline (per dataset)
+    for idx, (_, dataset) in enumerate(id_combos):
+        if dataset in baselines and baselines[dataset] > 0:
+            ax.axhline(y=baselines[dataset], color=colors[idx], linestyle="--", 
+                      alpha=0.4, linewidth=1.5)
+            # Label on the right edge
+            ax.text(101, baselines[dataset], f"{DATASET_NAMES.get(dataset, dataset)} cloud", 
+                   fontsize=8, color=colors[idx], alpha=0.7, va="center")
     
     ax.set_xlabel("System Accuracy (%)", fontsize=12)
     ax.set_ylabel("Cost per 1K Queries ($)", fontsize=12)
-    ax.set_title("Cost vs Accuracy Pareto Frontier\n(In-Distribution Only)", 
+    ax.set_yscale("log")  # Log scale for better visibility of cost range
+    ax.set_title("Cost vs Accuracy Pareto Frontier\n(In-Distribution Only, dashed = all-cloud baseline)", 
                 fontsize=13, fontweight="bold")
     
     ax.legend(loc="upper left")
-    ax.grid(True, alpha=0.3)
+    ax.grid(True, alpha=0.3, which="both")
+    ax.set_xlim(35, 102)
     
     plt.tight_layout()
     plt.savefig(output_path, dpi=150, bbox_inches="tight")
@@ -560,13 +593,21 @@ def create_figure4_cost_savings_bar(cost_results: dict, all_results: dict, outpu
     models = ["b_suffix", "b_suffix_supergpqa", "b_suffix_wildchat", "b_suffix_natural_reasoning"]
     datasets = ["mmlu", "supergpqa", "wildchat", "natural_reasoning"]
     
-    fig, ax = plt.subplots(figsize=(12, 7))
+    fig, ax = plt.subplots(figsize=(13, 7))
     
     x = np.arange(len(datasets))
     width = 0.2
     
+    # Hatching patterns for ID bars
+    hatch_patterns = ["//", "\\\\", "xx", "++"]
+    
+    # Track which bars couldn't hit target
+    cant_hit_target = []
+    
     for idx, model in enumerate(models):
         savings = []
+        thresholds_used = []
+        actual_accs = []
         
         for dataset in datasets:
             key = (model, dataset)
@@ -580,6 +621,8 @@ def create_figure4_cost_savings_bar(cost_results: dict, all_results: dict, outpu
                 # Find threshold closest to target accuracy
                 best_saving = None
                 best_delta = None
+                best_thresh = None
+                best_acc = None
                 for thresh in THRESHOLDS:
                     t = data.get("thresholds", {}).get(str(thresh), {})
                     sys_acc = t.get("system_accuracy", 0)
@@ -590,32 +633,59 @@ def create_figure4_cost_savings_bar(cost_results: dict, all_results: dict, outpu
                     if best_delta is None or delta < best_delta:
                         best_delta = delta
                         best_saving = saving
+                        best_thresh = thresh
+                        best_acc = sys_acc
+                
+                # Check if we're far from target (can't really hit it)
+                if best_acc is not None and abs(best_acc - target_accuracy) > 0.1:
+                    cant_hit_target.append((model, dataset))
                 
                 savings.append(best_saving if best_saving is not None else 0)
+                thresholds_used.append(best_thresh)
+                actual_accs.append(best_acc)
             else:
                 savings.append(0)
+                thresholds_used.append(None)
+                actual_accs.append(None)
         
         offset = (idx - 1.5) * width
         bars = ax.bar(x + offset, savings, width, 
                      label=MODEL_NAMES.get(model, model))
         
-        # Highlight in-distribution bars
+        # Style bars: ID gets hatching, can't-hit-target gets lighter color
         for i, (dataset, bar) in enumerate(zip(datasets, bars)):
             is_id = (model == "b_suffix" and dataset == "mmlu") or \
                     (model == f"b_suffix_{dataset}")
+            
+            # ID bars get hatching pattern
             if is_id:
+                bar.set_hatch(hatch_patterns[idx])
                 bar.set_edgecolor("black")
-                bar.set_linewidth(2)
+                bar.set_linewidth(1.5)
+            
+            # Mark bars that couldn't hit target
+            if (model, dataset) in cant_hit_target:
+                bar.set_alpha(0.5)
+            
+            # Add threshold annotation above bar
+            if thresholds_used[i] is not None and savings[i] > 0:
+                ax.text(x[i] + offset, savings[i] + 1, f"τ={thresholds_used[i]}", 
+                       ha="center", va="bottom", fontsize=7, rotation=90)
     
     ax.set_xlabel("Evaluation Dataset", fontsize=12)
     ax.set_ylabel("$ Saved per 1K Queries (vs All-Cloud)", fontsize=12)
-    ax.set_title(f"Cost Savings at {int(target_accuracy*100)}% System Accuracy\n(Bold border = In-Distribution)", 
+    ax.set_title(f"Cost Savings at ~{int(target_accuracy*100)}% System Accuracy\n(Hatched = In-Distribution, Faded = couldn't reach target)", 
                 fontsize=13, fontweight="bold")
     
     ax.set_xticks(x)
     ax.set_xticklabels([DATASET_NAMES.get(d, d) for d in datasets])
-    ax.legend(title="Model trained on")
+    ax.legend(title="Model trained on", loc="upper right")
     ax.grid(True, alpha=0.3, axis="y")
+    
+    # Add footnote
+    if cant_hit_target:
+        ax.text(0.01, -0.12, f"Note: Faded bars couldn't achieve {int(target_accuracy*100)}% accuracy (closest threshold shown).",
+               transform=ax.transAxes, fontsize=9, style="italic", color="gray")
     
     plt.tight_layout()
     plt.savefig(output_path, dpi=150, bbox_inches="tight")
