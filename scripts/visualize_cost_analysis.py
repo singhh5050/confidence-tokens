@@ -554,7 +554,7 @@ def create_figure4_cost_savings_bar(cost_results: dict, all_results: dict, outpu
     """
     Create bar chart showing $ saved at a target system accuracy.
     """
-    # Target accuracy: find threshold that achieves ~90% system accuracy
+    # Target accuracy: pick the closest threshold to this system accuracy
     target_accuracy = 0.90
     
     models = ["b_suffix", "b_suffix_supergpqa", "b_suffix_wildchat", "b_suffix_natural_reasoning"]
@@ -578,18 +578,20 @@ def create_figure4_cost_savings_bar(cost_results: dict, all_results: dict, outpu
                 all_cloud = data.get("all_cloud_cost_per_1k", 0)
                 
                 # Find threshold closest to target accuracy
-                best_saving = 0
+                best_saving = None
+                best_delta = None
                 for thresh in THRESHOLDS:
                     t = data.get("thresholds", {}).get(str(thresh), {})
                     sys_acc = t.get("system_accuracy", 0)
                     cost = t.get("cost_per_1k", all_cloud)
-                    
-                    if sys_acc >= target_accuracy:
-                        saving = all_cloud - cost
-                        if saving > best_saving:
-                            best_saving = saving
+
+                    delta = abs(sys_acc - target_accuracy)
+                    saving = all_cloud - cost
+                    if best_delta is None or delta < best_delta:
+                        best_delta = delta
+                        best_saving = saving
                 
-                savings.append(best_saving)
+                savings.append(best_saving if best_saving is not None else 0)
             else:
                 savings.append(0)
         
@@ -607,7 +609,7 @@ def create_figure4_cost_savings_bar(cost_results: dict, all_results: dict, outpu
     
     ax.set_xlabel("Evaluation Dataset", fontsize=12)
     ax.set_ylabel("$ Saved per 1K Queries (vs All-Cloud)", fontsize=12)
-    ax.set_title(f"Cost Savings at ≥{int(target_accuracy*100)}% System Accuracy\n(Bold border = In-Distribution)", 
+    ax.set_title(f"Cost Savings at {int(target_accuracy*100)}% System Accuracy\n(Bold border = In-Distribution)", 
                 fontsize=13, fontweight="bold")
     
     ax.set_xticks(x)
@@ -619,6 +621,87 @@ def create_figure4_cost_savings_bar(cost_results: dict, all_results: dict, outpu
     plt.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close()
     print(f"✓ Saved Figure 4: {output_path}")
+
+
+def compute_reliability(confidences: np.ndarray, labels: np.ndarray, n_bins: int = 10):
+    """Compute reliability diagram data."""
+    bin_edges = np.linspace(0.0, 1.0, n_bins + 1)
+    bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2.0
+    accs = []
+    confs = []
+    counts = []
+
+    for i in range(n_bins):
+        if i == n_bins - 1:
+            mask = (confidences >= bin_edges[i]) & (confidences <= bin_edges[i + 1])
+        else:
+            mask = (confidences >= bin_edges[i]) & (confidences < bin_edges[i + 1])
+        if mask.sum() > 0:
+            accs.append(labels[mask].mean())
+            confs.append(confidences[mask].mean())
+            counts.append(mask.sum())
+        else:
+            accs.append(np.nan)
+            confs.append(bin_centers[i])
+            counts.append(0)
+    return bin_centers, np.array(confs), np.array(accs), np.array(counts)
+
+
+def create_figure5_reliability_grid(calib_data: dict, output_path: str):
+    """
+    Create 4×4 reliability diagram grid.
+    """
+    models = ["b_suffix", "b_suffix_supergpqa", "b_suffix_wildchat", "b_suffix_natural_reasoning"]
+    datasets = ["mmlu", "supergpqa", "wildchat", "natural_reasoning"]
+
+    fig, axes = plt.subplots(4, 4, figsize=(14, 12), sharex=True, sharey=True)
+
+    for i, model in enumerate(models):
+        for j, dataset in enumerate(datasets):
+            ax = axes[i, j]
+            key = (model, dataset)
+            if key not in calib_data and dataset == "mmlu":
+                key = (model, "mmlu_pro")
+
+            if key in calib_data:
+                conf = calib_data[key]["confidences"]
+                labels = calib_data[key]["labels"]
+                _, bin_conf, bin_acc, counts = compute_reliability(conf, labels, n_bins=10)
+
+                is_id = (model == "b_suffix" and dataset in ["mmlu", "mmlu_pro"]) or \
+                        (model == f"b_suffix_{dataset}")
+                color = "tab:blue" if is_id else "tab:gray"
+
+                ax.plot([0, 1], [0, 1], color="black", alpha=0.3, linewidth=1)
+                ax.plot(bin_conf, bin_acc, marker="o", color=color, linewidth=2, markersize=4)
+
+                # Show average count per bin (rough size indicator)
+                avg_count = int(np.nanmean(counts))
+                ax.text(0.05, 0.9, f"avg n/bin={avg_count}",
+                        transform=ax.transAxes, fontsize=7, color="gray")
+                if is_id:
+                    ax.set_facecolor("#e6f2ff")
+            else:
+                ax.text(0.5, 0.5, "N/A", transform=ax.transAxes,
+                        ha="center", va="center", fontsize=12, color="gray")
+
+            if i == 0:
+                ax.set_title(DATASET_NAMES.get(dataset, dataset), fontsize=11, fontweight="bold")
+            if j == 0:
+                ax.set_ylabel(MODEL_NAMES.get(model, model), fontsize=10)
+
+            ax.set_xlim(0.0, 1.0)
+            ax.set_ylim(0.0, 1.0)
+            ax.grid(True, alpha=0.3)
+
+    fig.text(0.5, 0.02, "Mean Confidence", ha="center", fontsize=12)
+    fig.text(0.02, 0.5, "Empirical Accuracy", va="center", rotation="vertical", fontsize=12)
+    plt.suptitle("Reliability Diagrams (Calibration)\n(Blue = In-Distribution, Gray = Out-of-Distribution)",
+                 fontsize=14, fontweight="bold", y=1.02)
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close()
+    print(f"✓ Saved Figure 5: {output_path}")
 
 
 def create_summary_table(all_results: dict, cost_results: dict, output_path: str):
@@ -719,6 +802,7 @@ def main():
     
     # Step 2: Reload samples and compute costs
     cost_results = {}
+    calib_data = {}
     
     if not args.skip_token_reload:
         print("\n[Step 2] Reloading samples for token metrics...")
@@ -866,6 +950,10 @@ def main():
                 cost_data["num_samples"] = n
                 
                 cost_results[(model, dataset)] = cost_data
+                calib_data[(model, dataset)] = {
+                    "confidences": confidences,
+                    "labels": labels,
+                }
                 
             except Exception as e:
                 raise RuntimeError(f"Failed processing {model}/{dataset}: {e}") from e
@@ -893,6 +981,11 @@ def main():
             cost_results,
             all_results,
             os.path.join(args.output_dir, "fig4_cost_savings_bar.png")
+        )
+
+        create_figure5_reliability_grid(
+            calib_data,
+            os.path.join(args.output_dir, "fig5_reliability_grid.png")
         )
     
     # Step 4: Summary table
