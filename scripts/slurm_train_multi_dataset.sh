@@ -47,7 +47,6 @@ python scripts/train.py \
     --batch-size 1 \
     --grad-accum 32 \
     --output-dir "${OUTPUT_DIR}" \
-    --run-name "${RUN_NAME}" \
-    --wandb
+    --run-name "${RUN_NAME}"
 
 echo "✓ COMPLETE: ${OUTPUT_DIR}"
