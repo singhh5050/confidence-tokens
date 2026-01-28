@@ -260,7 +260,8 @@ def train_probe_from_data(model, tokenizer, dataset, conf_position: str, device,
     for i, example in enumerate(tqdm(dataset.select(range(min(num_samples, len(dataset)))), desc="Collecting hidden states")):
         question = example['problem']
         answer = example['model_metrics'][model_name].get('lm_response', '')
-        is_correct = example['model_metrics'][model_name].get('evaluation', {}).get('is_correct', False)
+        evaluation = example['model_metrics'][model_name].get('evaluation')
+        is_correct = evaluation.get('is_correct', False) if evaluation else False
         
         # Format prompt with answer to get hidden state at <|CONF|> position
         prompt = format_prompt_with_answer(question, answer, conf_position)
@@ -580,7 +581,8 @@ def evaluate_confidence(
     for idx, example in enumerate(tqdm(eval_dataset, desc="Evaluating")):
         question = example['problem']
         answer = example['model_metrics'][model_name].get('lm_response', '')
-        is_correct = example['model_metrics'][model_name].get('evaluation', {}).get('is_correct', False)
+        evaluation = example['model_metrics'][model_name].get('evaluation')
+        is_correct = evaluation.get('is_correct', False) if evaluation else False
         
         try:
             # Format prompt based on position
@@ -679,7 +681,8 @@ def evaluate_confidence(
         for example in tqdm(cal_dataset, desc="Calibration"):
             question = example['problem']
             answer = example['model_metrics'][model_name].get('lm_response', '')
-            is_correct = example['model_metrics'][model_name].get('evaluation', {}).get('is_correct', False)
+            evaluation = example['model_metrics'][model_name].get('evaluation')
+            is_correct = evaluation.get('is_correct', False) if evaluation else False
             
             try:
                 if conf_position == "suffix":
