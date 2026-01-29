@@ -183,9 +183,26 @@ def evaluate_on_dataset(
     split_seed = seed
     split_test_size = test_size
     if training_split_metadata is not None:
+        metadata_schema = training_split_metadata.get("metadata_schema")
         meta_path = training_split_metadata.get("dataset_path")
         meta_name = training_split_metadata.get("dataset_name")
-        if meta_path == config["path"] or meta_name == dataset_name:
+        dataset_names = training_split_metadata.get("dataset_names", [])
+        per_dataset = training_split_metadata.get("per_dataset", {})
+
+        # Multi-dataset training: treat any dataset in the training list as in-distribution
+        is_multi = metadata_schema == "multi"
+        is_mmlu_alias = dataset_name == "mmlu" and "mmlu_pro" in dataset_names
+        per_dataset_paths = {v.get("dataset_path") for v in per_dataset.values()}
+
+        if is_multi and (dataset_name in dataset_names or is_mmlu_alias or config["path"] in per_dataset_paths):
+            split_source = "training_metadata_multi"
+            split_seed = int(training_split_metadata["seed"])
+            split_test_size = float(training_split_metadata["test_size"])
+            print(
+                f"✓ Using multi-dataset split metadata for {dataset_name}: "
+                f"test_size={split_test_size}, seed={split_seed}"
+            )
+        elif meta_path == config["path"] or meta_name == dataset_name:
             split_source = "training_metadata"
             split_seed = int(training_split_metadata["seed"])
             split_test_size = float(training_split_metadata["test_size"])
