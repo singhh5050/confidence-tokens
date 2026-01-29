@@ -343,7 +343,19 @@ def create_figure1_coverage_accuracy_grid(all_results: dict, output_path: str):
         models = ["b_suffix", "b_suffix_supergpqa", "b_suffix_wildchat", "b_suffix_natural_reasoning"]
         datasets = ["mmlu", "supergpqa", "wildchat", "natural_reasoning"]
     
-    fig, axes = plt.subplots(4, 4, figsize=(15, 13), sharex=True, sharey=True)
+    n_rows = max(1, len(models))
+    n_cols = max(1, len(datasets))
+    fig, axes = plt.subplots(
+        n_rows, n_cols, figsize=(max(8, n_cols * 3.5), max(6, n_rows * 3.0)),
+        sharex=True, sharey=True
+    )
+    # Normalize axes to 2D array for consistent indexing
+    if n_rows == 1 and n_cols == 1:
+        axes = np.array([[axes]])
+    elif n_rows == 1:
+        axes = np.array([axes])
+    elif n_cols == 1:
+        axes = np.array([[ax] for ax in axes])
     
     for i, model in enumerate(models):
         for j, dataset in enumerate(datasets):
@@ -373,8 +385,11 @@ def create_figure1_coverage_accuracy_grid(all_results: dict, output_path: str):
                 
                 if coverages:
                     # Highlight diagonal (in-distribution)
-                    is_id = (model == "b_suffix" and dataset in ["mmlu", "mmlu_pro"]) or \
-                            (model == f"b_suffix_{dataset}")
+                    if "multi" in model:
+                        is_id = dataset in ["mmlu", "mmlu_pro", "supergpqa", "wildchat", "natural_reasoning"]
+                    else:
+                        is_id = (model == "b_suffix" and dataset in ["mmlu", "mmlu_pro"]) or \
+                                (model == f"b_suffix_{dataset}")
                     
                     color = "tab:blue" if is_id else "tab:gray"
                     linewidth = 2.5 if is_id else 1.5
