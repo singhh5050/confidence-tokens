@@ -335,8 +335,13 @@ def create_figure1_coverage_accuracy_grid(all_results: dict, output_path: str):
     Rows = models (trained on), Columns = eval datasets
     """
     # Define order
-    models = ["b_suffix", "b_suffix_supergpqa", "b_suffix_wildchat", "b_suffix_natural_reasoning"]
-    datasets = ["mmlu", "supergpqa", "wildchat", "natural_reasoning"]
+    # Use discovered models/datasets to avoid empty summary for new runs
+    if all_results:
+        models = sorted({m for (m, _) in all_results.keys()})
+        datasets = sorted({d for (_, d) in all_results.keys()})
+    else:
+        models = ["b_suffix", "b_suffix_supergpqa", "b_suffix_wildchat", "b_suffix_natural_reasoning"]
+        datasets = ["mmlu", "supergpqa", "wildchat", "natural_reasoning"]
     
     fig, axes = plt.subplots(4, 4, figsize=(15, 13), sharex=True, sharey=True)
     
@@ -776,8 +781,12 @@ def create_summary_table(all_results: dict, cost_results: dict, output_path: str
             
             data = all_results[key]
             
-            is_id = (model == "b_suffix" and dataset in ["mmlu", "mmlu_pro"]) or \
-                    (model == f"b_suffix_{dataset}")
+            # Determine in-distribution vs OOD
+            if "multi" in model:
+                is_id = dataset in ["mmlu", "mmlu_pro", "supergpqa", "wildchat", "natural_reasoning"]
+            else:
+                is_id = (model == "b_suffix" and dataset in ["mmlu", "mmlu_pro"]) or \
+                        (model == f"b_suffix_{dataset}")
             
             # Get metrics at τ=0.5
             routing = data.get("routing", {}).get("0.5", {})
@@ -804,6 +813,11 @@ def create_summary_table(all_results: dict, cost_results: dict, output_path: str
             rows.append(row)
     
     df = pd.DataFrame(rows)
+    if df.empty:
+        print("⚠ No summary rows produced (no matching model/dataset keys). Skipping summary.")
+        df.to_csv(output_path, index=False)
+        print(f"✓ Saved summary table: {output_path}")
+        return
     df.to_csv(output_path, index=False)
     print(f"✓ Saved summary table: {output_path}")
     
