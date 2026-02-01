@@ -346,6 +346,7 @@ Examples:
             test_size=args.test_size,
             seed=args.seed,
             output_dir=args.output_dir,  # Saves split_metadata.json here
+            trace_model=args.trace_model,
         )
     else:
         raw_train, raw_test, split_metadata = create_train_test_split(

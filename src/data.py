@@ -200,6 +200,7 @@ def create_multi_dataset_split(
     test_size: float = 0.2,
     seed: int = 42,
     output_dir: Optional[str] = None,
+    trace_model: Optional[str] = None,
 ) -> Tuple[Dataset, Dataset, Dict]:
     """
     Create reproducible train/test splits for multiple datasets and concatenate them.
@@ -233,6 +234,19 @@ def create_multi_dataset_split(
         # Create split with same seed for reproducibility
         split = full_dataset.train_test_split(test_size=test_size, seed=seed)
         
+        # Optionally normalize model_metrics to a single trace model
+        if trace_model:
+            def keep_trace_model(example):
+                model_metrics = example.get("model_metrics", {})
+                if trace_model in model_metrics:
+                    example["model_metrics"] = {trace_model: model_metrics[trace_model]}
+                else:
+                    example["model_metrics"] = {}
+                return example
+
+            train_ds = train_ds.map(keep_trace_model, desc=f"Keeping {trace_model} metrics in {dataset_name} train")
+            test_ds = test_ds.map(keep_trace_model, desc=f"Keeping {trace_model} metrics in {dataset_name} test")
+
         # Add source dataset column for tracking
         def add_source(example):
             example["_source_dataset"] = dataset_name
