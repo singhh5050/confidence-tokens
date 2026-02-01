@@ -364,14 +364,19 @@ Examples:
         print(f"⚠ Limited to {len(raw_train)} train / {len(raw_test)} test samples (--max-samples)")
     
     # Filter out samples missing the requested trace model (no fallback)
+    # Multi-dataset splits may already be flattened; handle both cases.
     def has_trace_model(example):
-        return args.trace_model in example.get("model_metrics", {})
-    
+        if "model_metrics" in example:
+            return args.trace_model in example.get("model_metrics", {})
+        if "is_correct" in example and "lm_response" in example and "problem" in example:
+            return True
+        return False
+
     pre_filter_train = len(raw_train)
     raw_train = raw_train.filter(has_trace_model, desc=f"Filtering train by {args.trace_model}")
     pre_filter_test = len(raw_test)
     raw_test = raw_test.filter(has_trace_model, desc=f"Filtering test by {args.trace_model}")
-    
+
     dropped_train = pre_filter_train - len(raw_train)
     dropped_test = pre_filter_test - len(raw_test)
     if dropped_train > 0 or dropped_test > 0:
@@ -384,15 +389,20 @@ Examples:
     from data import format_prompt, extract_from_nested
     
     def format_example(example):
-        extracted = extract_from_nested(example, args.trace_model)
-        text = format_prompt(
-            str(extracted["question"]), 
-            str(extracted["answer"]), 
-            args.conf_position
-        )
+        if "model_metrics" in example:
+            extracted = extract_from_nested(example, args.trace_model)
+            question = str(extracted["question"])
+            answer = str(extracted["answer"])
+            is_correct = float(extracted["is_correct"])
+        else:
+            question = str(example.get("problem", ""))
+            answer = str(example.get("lm_response", ""))
+            is_correct = float(example.get("is_correct", 0.0))
+
+        text = format_prompt(question, answer, args.conf_position)
         return {
             "text": text,
-            "confidence_label": float(extracted["is_correct"]),
+            "confidence_label": is_correct,
             "conf_token_position": -1,
         }
     

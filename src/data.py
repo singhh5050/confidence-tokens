@@ -219,6 +219,34 @@ def create_multi_dataset_split(
     all_train = []
     all_test = []
     per_dataset_metadata = {}
+
+    def flatten_to_training_schema(ds: Dataset, source_name: str) -> Dataset:
+        """
+        Flatten dataset to a minimal schema for multi-dataset concatenation.
+        This avoids schema mismatches in nested model_metrics.
+        """
+        if trace_model is None:
+            raise ValueError("trace_model must be provided for multi-dataset training")
+
+        problems = []
+        responses = []
+        labels = []
+        sources = []
+
+        for ex in ds:
+            model_data = ex.get("model_metrics", {}).get(trace_model, {})
+            evaluation = model_data.get("evaluation") or {}
+            problems.append(str(ex.get("problem", "")))
+            responses.append(str(model_data.get("lm_response", "")))
+            labels.append(bool(evaluation.get("is_correct", False)))
+            sources.append(source_name)
+
+        return Dataset.from_dict({
+            "problem": problems,
+            "lm_response": responses,
+            "is_correct": labels,
+            "_source_dataset": sources,
+        })
     
     for dataset_name in dataset_names:
         if dataset_name not in DATASET_CONFIGS:
@@ -236,43 +264,9 @@ def create_multi_dataset_split(
         train_ds = split["train"]
         test_ds = split["test"]
 
-        # Optionally normalize model_metrics to a single trace model
-        if trace_model:
-            def keep_trace_model(example):
-                model_metrics = example.get("model_metrics", {})
-                if trace_model in model_metrics:
-                    model_data = model_metrics[trace_model] or {}
-                    evaluation = model_data.get("evaluation") or {}
-                    # Normalize to a minimal, consistent schema
-                    normalized = {
-                        "lm_response": model_data.get("lm_response", ""),
-                        "evaluation": {
-                            "is_correct": bool(evaluation.get("is_correct", False))
-                        },
-                    }
-                    example["model_metrics"] = {trace_model: normalized}
-                else:
-                    example["model_metrics"] = {}
-                return example
-
-            train_ds = train_ds.map(
-                keep_trace_model,
-                desc=f"Keeping {trace_model} metrics in {dataset_name} train",
-                load_from_cache_file=False,
-            )
-            test_ds = test_ds.map(
-                keep_trace_model,
-                desc=f"Keeping {trace_model} metrics in {dataset_name} test",
-                load_from_cache_file=False,
-            )
-
-        # Add source dataset column for tracking
-        def add_source(example):
-            example["_source_dataset"] = dataset_name
-            return example
-
-        train_ds = train_ds.map(add_source, desc=f"Adding source tag to {dataset_name} train")
-        test_ds = test_ds.map(add_source, desc=f"Adding source tag to {dataset_name} test")
+        # Flatten to minimal schema for concatenation
+        train_ds = flatten_to_training_schema(train_ds, dataset_name)
+        test_ds = flatten_to_training_schema(test_ds, dataset_name)
         
         all_train.append(train_ds)
         all_test.append(test_ds)
