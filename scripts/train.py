@@ -79,7 +79,15 @@ Examples:
         "--dataset", "-d",
         type=str,
         default="mmlu_pro",
-        choices=["mmlu_pro", "supergpqa", "wildchat", "natural_reasoning"],
+        choices=[
+            "mmlu_pro",
+            "supergpqa",
+            "wildchat",
+            "natural_reasoning",
+            "mmlu_pro_qwen",
+            "supergpqa_qwen",
+            "wildchat_qwen",
+        ],
         help="Dataset to train on (default: mmlu_pro). Ignored if --datasets is provided."
     )
     parser.add_argument(
@@ -239,7 +247,15 @@ Examples:
     dataset_list = None
     if args.datasets:
         dataset_list = [d.strip() for d in args.datasets.split(",")]
-        valid_datasets = ["mmlu_pro", "supergpqa", "wildchat", "natural_reasoning"]
+        valid_datasets = [
+            "mmlu_pro",
+            "supergpqa",
+            "wildchat",
+            "natural_reasoning",
+            "mmlu_pro_qwen",
+            "supergpqa_qwen",
+            "wildchat_qwen",
+        ]
         for d in dataset_list:
             if d not in valid_datasets:
                 print(f"❌ Unknown dataset: {d}. Valid options: {valid_datasets}")

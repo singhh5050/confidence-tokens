@@ -48,6 +48,18 @@ DATASET_CONFIGS = {
         "path": "akenginorhun/natural_reasoning_10k_seed1_Olmo-3_family_metrics",
         "split_map": {"train": "train", "test": "test"},
     },
+    "mmlu_pro_qwen": {
+        "path": "akenginorhun/mmlu-pro_10k_seed1_Qwen_gemma_granite_FP8_metrics",
+        "split_map": {"train": "train", "test": "test"},
+    },
+    "supergpqa_qwen": {
+        "path": "akenginorhun/supergpqa_10k_seed1_Qwen_gemma_granite_FP8_metrics",
+        "split_map": {"train": "train", "test": "test"},
+    },
+    "wildchat_qwen": {
+        "path": "akenginorhun/wildchat-4.8m_10k_seed1_Qwen_gemma_granite_FP8_metrics_extended",
+        "split_map": {"train": "train", "test": "test"},
+    },
 }
 
 

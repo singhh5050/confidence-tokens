@@ -39,9 +39,6 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-# Target model whose traces we use
-TARGET_MODEL = "allenai/Olmo-3-7B-Think"
-
 # Default evaluation split (used only when NOT using the model's training split metadata)
 DEFAULT_TEST_SIZE = 0.2
 
@@ -67,6 +64,18 @@ DATASETS = {
     "natural_reasoning": {
         "path": "akenginorhun/natural_reasoning_10k_seed1_Olmo-3_family_metrics",
         "category_field": None,  # Will check
+    },
+    "mmlu_pro_qwen": {
+        "path": "akenginorhun/mmlu-pro_10k_seed1_Qwen_gemma_granite_FP8_metrics",
+        "category_field": "category",
+    },
+    "supergpqa_qwen": {
+        "path": "akenginorhun/supergpqa_10k_seed1_Qwen_gemma_granite_FP8_metrics",
+        "category_field": "discipline",
+    },
+    "wildchat_qwen": {
+        "path": "akenginorhun/wildchat-4.8m_10k_seed1_Qwen_gemma_granite_FP8_metrics_extended",
+        "category_field": None,
     },
 }
 
@@ -155,6 +164,7 @@ def evaluate_on_dataset(
     training_split_metadata: dict | None = None,
     min_eval_samples: int = 500,
     fail_on_skips: bool = True,
+    trace_model: str | None = None,
 ):
     """
     Evaluate confidence model on a dataset for routing analysis.
@@ -175,6 +185,16 @@ def evaluate_on_dataset(
     print("Loading dataset...")
     full_dataset = load_dataset(config["path"], split="train")
     print(f"Total samples in dataset: {len(full_dataset)}")
+
+    # Resolve trace model (must exist in model_metrics)
+    if trace_model is None:
+        raise ValueError("trace_model must be provided to evaluate_on_dataset")
+    sample_models = list(full_dataset[0].get("model_metrics", {}).keys())
+    if trace_model not in sample_models:
+        raise ValueError(
+            f"Trace model '{trace_model}' not found in model_metrics for {dataset_name}. "
+            f"Available: {sample_models}"
+        )
 
     # Decide which split parameters to use.
     # IMPORTANT: split first, then filter. This matches `scripts/train.py`, which splits
@@ -227,12 +247,12 @@ def evaluate_on_dataset(
 
     # Filter the TEST split to samples with target model traces (matches training pipeline)
     def has_target_model(ex):
-        return TARGET_MODEL in ex.get("model_metrics", {})
+        return trace_model in ex.get("model_metrics", {})
 
     pre_filter_test = len(test_dataset)
-    test_dataset = test_dataset.filter(has_target_model, desc=f"Filtering test by {TARGET_MODEL}")
+    test_dataset = test_dataset.filter(has_target_model, desc=f"Filtering test by {trace_model}")
     post_filter_test = len(test_dataset)
-    print(f"Test split (post-filter): {post_filter_test}/{pre_filter_test} samples with {TARGET_MODEL} traces")
+    print(f"Test split (post-filter): {post_filter_test}/{pre_filter_test} samples with {trace_model} traces")
 
     if post_filter_test < min_eval_samples:
         raise ValueError(
@@ -265,7 +285,7 @@ def evaluate_on_dataset(
     skipped = 0
     for sample_idx, example in enumerate(tqdm(eval_dataset, desc="Evaluating")):
         question = example["problem"]
-        model_data = example["model_metrics"][TARGET_MODEL]
+        model_data = example["model_metrics"][trace_model]
         answer = model_data.get("lm_response", "")
         
         # Handle null evaluation field (some datasets have this)
@@ -443,6 +463,9 @@ def main():
                        help="Fail if fewer than this many test samples remain after filtering")
     parser.add_argument("--allow-skips", action="store_true",
                        help="Allow skipping samples where <|CONF|> is truncated/missing (not recommended)")
+    parser.add_argument("--trace-model", type=str, default=None,
+                       help="Model name inside dataset model_metrics to use for correctness labels. "
+                            "Defaults to run_config.json trace_model if available.")
     args = parser.parse_args()
     
     # Set output dir
@@ -494,6 +517,22 @@ def main():
         print(f"✓ Found training split metadata at {split_meta_path}")
     else:
         print(f"ℹ No split_metadata.json found at {split_meta_path} (OOD-only safe, but IID may contaminate)")
+
+    # Resolve trace model from run_config.json if available
+    run_config_path = os.path.join(args.model_path, "run_config.json")
+    trace_model = args.trace_model
+    if trace_model is None and os.path.exists(run_config_path):
+        with open(run_config_path, "r") as f:
+            run_config = json.load(f)
+        trace_model = run_config.get("args", {}).get("trace_model")
+        if trace_model:
+            print(f"✓ Found trace_model in run_config.json: {trace_model}")
+
+    if trace_model is None:
+        raise ValueError(
+            "No trace_model provided and none found in run_config.json. "
+            "Pass --trace-model to select the model_metrics key."
+        )
     
     # Determine datasets to evaluate
     if args.dataset == "all":
@@ -517,6 +556,7 @@ def main():
                 training_split_metadata=training_split_metadata,
                 min_eval_samples=args.min_eval_samples,
                 fail_on_skips=(not args.allow_skips),
+                trace_model=trace_model,
             )
             all_results[dataset_name] = metrics
             
