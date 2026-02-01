@@ -233,7 +233,9 @@ def create_multi_dataset_split(
         
         # Create split with same seed for reproducibility
         split = full_dataset.train_test_split(test_size=test_size, seed=seed)
-        
+        train_ds = split["train"]
+        test_ds = split["test"]
+
         # Optionally normalize model_metrics to a single trace model
         if trace_model:
             def keep_trace_model(example):
@@ -251,9 +253,9 @@ def create_multi_dataset_split(
         def add_source(example):
             example["_source_dataset"] = dataset_name
             return example
-        
-        train_ds = split["train"].map(add_source, desc=f"Adding source tag to {dataset_name} train")
-        test_ds = split["test"].map(add_source, desc=f"Adding source tag to {dataset_name} test")
+
+        train_ds = train_ds.map(add_source, desc=f"Adding source tag to {dataset_name} train")
+        test_ds = test_ds.map(add_source, desc=f"Adding source tag to {dataset_name} test")
         
         all_train.append(train_ds)
         all_test.append(test_ds)
