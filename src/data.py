@@ -255,8 +255,16 @@ def create_multi_dataset_split(
                     example["model_metrics"] = {}
                 return example
 
-            train_ds = train_ds.map(keep_trace_model, desc=f"Keeping {trace_model} metrics in {dataset_name} train")
-            test_ds = test_ds.map(keep_trace_model, desc=f"Keeping {trace_model} metrics in {dataset_name} test")
+            train_ds = train_ds.map(
+                keep_trace_model,
+                desc=f"Keeping {trace_model} metrics in {dataset_name} train",
+                load_from_cache_file=False,
+            )
+            test_ds = test_ds.map(
+                keep_trace_model,
+                desc=f"Keeping {trace_model} metrics in {dataset_name} test",
+                load_from_cache_file=False,
+            )
 
         # Add source dataset column for tracking
         def add_source(example):
