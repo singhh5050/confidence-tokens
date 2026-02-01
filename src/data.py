@@ -241,7 +241,16 @@ def create_multi_dataset_split(
             def keep_trace_model(example):
                 model_metrics = example.get("model_metrics", {})
                 if trace_model in model_metrics:
-                    example["model_metrics"] = {trace_model: model_metrics[trace_model]}
+                    model_data = model_metrics[trace_model] or {}
+                    evaluation = model_data.get("evaluation") or {}
+                    # Normalize to a minimal, consistent schema
+                    normalized = {
+                        "lm_response": model_data.get("lm_response", ""),
+                        "evaluation": {
+                            "is_correct": bool(evaluation.get("is_correct", False))
+                        },
+                    }
+                    example["model_metrics"] = {trace_model: normalized}
                 else:
                     example["model_metrics"] = {}
                 return example
