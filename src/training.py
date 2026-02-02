@@ -404,6 +404,8 @@ class SuffixConfidenceTrainer(SFTTrainer):
         valid_mask = (~invalid_mask).float()
         valid_count = valid_mask.sum().clamp(min=1.0)
         conf_loss = (bce * valid_mask).sum() / valid_count
+        if conf_loss.device != lm_loss.device:
+            conf_loss = conf_loss.to(lm_loss.device)
         
         # Combined loss: (1-α) * LM + α * Confidence
         total_loss = (1 - self.alpha) * lm_loss + self.alpha * conf_loss

@@ -374,7 +374,6 @@ Examples:
     
     # Limit samples if requested (for quick testing)
     if args.max_samples:
-        from datasets import Dataset
         raw_train = raw_train.select(range(min(args.max_samples, len(raw_train))))
         raw_test = raw_test.select(range(min(args.max_samples // 5, len(raw_test))))
         print(f"⚠ Limited to {len(raw_train)} train / {len(raw_test)} test samples (--max-samples)")
