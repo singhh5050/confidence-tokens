@@ -341,6 +341,8 @@ class SuffixConfidenceTrainer(SFTTrainer):
         # Shift for autoregressive LM loss
         shift_logits = logits[:, :-1, :].contiguous()
         shift_labels = labels[:, 1:].contiguous()
+        if shift_labels.device != shift_logits.device:
+            shift_labels = shift_labels.to(shift_logits.device)
         lm_loss = F.cross_entropy(
             shift_logits.view(-1, shift_logits.size(-1)),
             shift_labels.view(-1),
