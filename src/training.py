@@ -260,6 +260,7 @@ class SuffixConfidenceTrainer(SFTTrainer):
         super().__init__(*args, **kwargs)
         self.conf_token_id = conf_token_id
         self.alpha = alpha  # Weight for confidence supervision loss
+        self._invalid_label_warning_count = 0
         
         # Linear probe to predict confidence from hidden state
         hidden_size = self.model.config.hidden_size
@@ -342,7 +343,8 @@ class SuffixConfidenceTrainer(SFTTrainer):
             )
         
         # Compute LM logits and loss manually
-        logits = model.lm_head(last_hidden)  # (batch, seq_len, vocab)
+        lm_head_device = model.lm_head.weight.device
+        logits = model.lm_head(last_hidden.to(lm_head_device))  # (batch, seq_len, vocab)
         
         # Shift for autoregressive LM loss
         shift_logits = logits[:, :-1, :].contiguous()
@@ -359,11 +361,13 @@ class SuffixConfidenceTrainer(SFTTrainer):
             valid_labels = shift_labels[shift_labels != -100]
             max_label = int(valid_labels.max().item()) if valid_labels.numel() > 0 else -1
             min_label = int(valid_labels.min().item()) if valid_labels.numel() > 0 else -1
-            print(
-                f"⚠ Found {invalid_count} labels out of vocab "
-                f"(range [{min_label}, {max_label}], vocab_size={vocab_size}); "
-                "masking to -100."
-            )
+            if self._invalid_label_warning_count == 0:
+                print(
+                    f"⚠ Found {invalid_count} labels out of vocab "
+                    f"(range [{min_label}, {max_label}], vocab_size={vocab_size}); "
+                    "masking to -100. (warning shown once)"
+                )
+            self._invalid_label_warning_count += 1
             shift_labels = shift_labels.masked_fill(invalid_mask_labels, -100)
 
         lm_loss = F.cross_entropy(
