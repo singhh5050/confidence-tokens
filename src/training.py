@@ -306,6 +306,7 @@ class SuffixConfidenceTrainer(SFTTrainer):
             )
     
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+        input_device = inputs["input_ids"].device
         # Extract custom labels (pop so they don't go to model forward)
         confidence_labels = inputs.pop("confidence_labels").float()  # (batch,)
         conf_token_positions = inputs.pop("conf_token_positions")    # (batch,)
@@ -385,6 +386,11 @@ class SuffixConfidenceTrainer(SFTTrainer):
         # Guard against any out-of-bounds or invalid positions (should be rare after filtering)
         # Note: position -1 would index the last token in Python, so we must check < 0 too
         invalid_mask = (conf_positions >= seq_len) | (conf_positions < 0)
+        print(
+            f"DEBUG: conf_positions range "
+            f"[{int(conf_positions.min().item())}, {int(conf_positions.max().item())}], "
+            f"seq_len={seq_len}"
+        )
         if invalid_mask.any():
             # Clamp to valid range to avoid crashes; loss masking handles invalid entries
             conf_positions = torch.clamp(conf_positions, min=0, max=seq_len - 1)
@@ -409,6 +415,8 @@ class SuffixConfidenceTrainer(SFTTrainer):
         
         # Combined loss: (1-α) * LM + α * Confidence
         total_loss = (1 - self.alpha) * lm_loss + self.alpha * conf_loss
+        if total_loss.device != input_device:
+            total_loss = total_loss.to(input_device)
         
         # Log both losses for monitoring
         if self.state.global_step % self.args.logging_steps == 0:
