@@ -326,6 +326,22 @@ Examples:
     print("\nAdding <|CONF|> token...")
     conf_token_id = add_conf_token(tokenizer, model)
     print(f"✓ <|CONF|> token ID: {conf_token_id}")
+
+    # Ensure output embeddings match tokenizer size
+    output_embeddings = model.get_output_embeddings()
+    if output_embeddings is not None:
+        output_size = output_embeddings.weight.shape[0]
+        vocab_size = len(tokenizer)
+        if output_size != vocab_size:
+            print(
+                f"⚠ Output embeddings size mismatch: {output_size} != {vocab_size}. "
+                "Resizing and tying weights."
+            )
+            model.resize_token_embeddings(vocab_size)
+            try:
+                model.tie_weights()
+            except Exception:
+                print("⚠ Unable to tie weights; continuing with resized embeddings.")
     
     # Prepare datasets with proper train/test split
     print("\n" + "-" * 70)

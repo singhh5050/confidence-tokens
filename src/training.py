@@ -349,6 +349,23 @@ class SuffixConfidenceTrainer(SFTTrainer):
         shift_labels = labels[:, 1:].contiguous()
         if shift_labels.device != shift_logits.device:
             shift_labels = shift_labels.to(shift_logits.device)
+        # Guard against out-of-range labels (prevents CUDA device asserts)
+        vocab_size = shift_logits.size(-1)
+        invalid_mask_labels = (shift_labels != -100) & (
+            (shift_labels < 0) | (shift_labels >= vocab_size)
+        )
+        if invalid_mask_labels.any():
+            invalid_count = int(invalid_mask_labels.sum().item())
+            valid_labels = shift_labels[shift_labels != -100]
+            max_label = int(valid_labels.max().item()) if valid_labels.numel() > 0 else -1
+            min_label = int(valid_labels.min().item()) if valid_labels.numel() > 0 else -1
+            print(
+                f"⚠ Found {invalid_count} labels out of vocab "
+                f"(range [{min_label}, {max_label}], vocab_size={vocab_size}); "
+                "masking to -100."
+            )
+            shift_labels = shift_labels.masked_fill(invalid_mask_labels, -100)
+
         lm_loss = F.cross_entropy(
             shift_logits.view(-1, shift_logits.size(-1)),
             shift_labels.view(-1),
