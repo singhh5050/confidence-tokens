@@ -3,7 +3,7 @@
 #SBATCH --account=matx
 #SBATCH --partition=matx
 #SBATCH --nodes=1
-#SBATCH --gres=gpu:l40s:1
+#SBATCH --gres=gpu:l40s:2
 #SBATCH --exclude=matx-amd-1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=80G
