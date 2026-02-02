@@ -473,6 +473,34 @@ Examples:
     else:
         dropped_tokenize_eval = 0
     print("✓ Tokenization complete")
+
+    if args.supervised:
+        print("\n" + "=" * 60)
+        print("CONF POSITION DIAGNOSTICS")
+        print("=" * 60)
+
+        conf_id = tokenizer.convert_tokens_to_ids("<|CONF|>")
+        unk_id = tokenizer.unk_token_id
+        print(f"<|CONF|> token ID: {conf_id}")
+        print(f"UNK token ID: {unk_id}")
+        if conf_id == unk_id:
+            raise ValueError("FATAL: <|CONF|> is UNK! Token not in vocabulary.")
+
+        n_samples = min(10, len(train_dataset))
+        positions = train_dataset["conf_token_position"][:n_samples]
+        lengths = [len(ids) for ids in train_dataset["input_ids"][:n_samples]]
+
+        print(f"\nFirst {n_samples} samples:")
+        for i, (pos, length) in enumerate(zip(positions, lengths)):
+            valid = "OK" if 0 <= pos < length else "INVALID"
+            print(f"  [{i}] pos={pos}, seq_len={length} -> {valid}")
+
+        all_pos = train_dataset["conf_token_position"]
+        all_lens = [len(ids) for ids in train_dataset["input_ids"]]
+        invalid = sum(1 for p, l in zip(all_pos, all_lens) if p < 0 or p >= l)
+        invalid_pct = (100 * invalid / len(all_pos)) if all_pos else 0.0
+        print(f"\nOverall: {invalid}/{len(all_pos)} invalid positions ({invalid_pct:.1f}%)")
+        print("=" * 60 + "\n")
     
     # Configure training
     # Set eval_strategy based on whether we have an eval dataset

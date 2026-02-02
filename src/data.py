@@ -686,7 +686,8 @@ def get_tokenized_dataset(
         lambda x: tokenize_for_training(x, tokenizer, max_length),
         batched=True,
         remove_columns=["text"],
-        desc="Tokenizing dataset"
+        desc="Tokenizing dataset",
+        load_from_cache_file=False,
     )
     
     total_rows = len(tokenized)
