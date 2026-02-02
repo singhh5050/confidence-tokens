@@ -310,12 +310,6 @@ class SuffixConfidenceTrainer(SFTTrainer):
         conf_token_positions = inputs.pop("conf_token_positions")    # (batch,)
         labels = inputs.get("labels")
         
-        # Ensure confidence head is on correct device and dtype
-        device = next(model.parameters()).device
-        dtype = next(model.parameters()).dtype
-        if self.confidence_head.weight.device != device or self.confidence_head.weight.dtype != dtype:
-            self.confidence_head = self.confidence_head.to(device=device, dtype=dtype)
-        
         # IMPORTANT: Disable cache for gradient checkpointing compatibility
         model.config.use_cache = False
         
@@ -334,6 +328,18 @@ class SuffixConfidenceTrainer(SFTTrainer):
             return_dict=True,
         )
         last_hidden = base_outputs.last_hidden_state  # (batch, seq_len, hidden)
+
+        # Ensure confidence head and labels align with last_hidden device/dtype
+        hidden_device = last_hidden.device
+        hidden_dtype = last_hidden.dtype
+        if (
+            self.confidence_head.weight.device != hidden_device
+            or self.confidence_head.weight.dtype != hidden_dtype
+        ):
+            self.confidence_head = self.confidence_head.to(
+                device=hidden_device,
+                dtype=hidden_dtype,
+            )
         
         # Compute LM logits and loss manually
         logits = model.lm_head(last_hidden)  # (batch, seq_len, vocab)
@@ -351,9 +357,9 @@ class SuffixConfidenceTrainer(SFTTrainer):
         
         # Vectorized gather of CONF hidden states (no loop needed)
         batch_size = last_hidden.size(0)
-        batch_idx = torch.arange(batch_size, device=device)
+        batch_idx = torch.arange(batch_size, device=hidden_device)
         seq_len = last_hidden.size(1)
-        conf_positions = conf_token_positions.to(device)
+        conf_positions = conf_token_positions.to(hidden_device)
         
         # Guard against any out-of-bounds or invalid positions (should be rare after filtering)
         # Note: position -1 would index the last token in Python, so we must check < 0 too
@@ -368,7 +374,7 @@ class SuffixConfidenceTrainer(SFTTrainer):
         conf_logits = self.confidence_head(conf_hidden).squeeze(-1)  # (batch,)
         
         # Confidence supervision loss (Binary Cross-Entropy)
-        conf_targets = confidence_labels.to(device)
+        conf_targets = confidence_labels.to(hidden_device)
         bce = F.binary_cross_entropy_with_logits(
             conf_logits, 
             conf_targets,
@@ -388,7 +394,7 @@ class SuffixConfidenceTrainer(SFTTrainer):
             self.log({
                 "lm_loss": lm_loss.item(),
                 "conf_loss": conf_loss.item(),
-                "conf_accuracy": ((conf_logits > 0).float() == confidence_labels.to(device)).float().mean().item(),
+                "conf_accuracy": ((conf_logits > 0).float() == confidence_labels.to(hidden_device)).float().mean().item(),
                 "conf_logit_mean": conf_logits.mean().item(),
                 "conf_logit_std": conf_logits.std().item(),
                 "conf_prob_mean": conf_probs.mean().item(),
