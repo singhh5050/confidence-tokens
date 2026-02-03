@@ -1,0 +1,42 @@
+{
+  "mmlu_pro": {
+    "gpt-5-2025-08-07": {
+      "cloud_accuracy": 0.8704,
+      "avg_input_tokens": 260.4869,
+      "avg_output_tokens": 170.3813,
+      "num_eval": 10000,
+      "num_token_rows": 10000,
+      "dataset": "akenginorhun/mmlu-pro_10k_seed1_claude_gemini_gpt_metrics"
+    }
+  },
+  "supergpqa": {
+    "gpt-5-2025-08-07": {
+      "cloud_accuracy": 0.645,
+      "avg_input_tokens": 291.3334,
+      "avg_output_tokens": 192.4201,
+      "num_eval": 10000,
+      "num_token_rows": 10000,
+      "dataset": "akenginorhun/supergpqa_10k_seed1_claude_gemini_gpt_metrics"
+    }
+  },
+  "wildchat": {
+    "gpt-5-2025-08-07": {
+      "cloud_accuracy": 0.8192,
+      "avg_input_tokens": 168.4019,
+      "avg_output_tokens": 653.6357,
+      "num_eval": 10000,
+      "num_token_rows": 10000,
+      "dataset": "akenginorhun/wildchat-4.8m_10k_seed1_claude_gemini_gpt_metrics"
+    }
+  },
+  "natural_reasoning": {
+    "gpt-5-2025-08-07": {
+      "cloud_accuracy": 0.8287,
+      "avg_input_tokens": 147.2759,
+      "avg_output_tokens": 794.4402,
+      "num_eval": 10000,
+      "num_token_rows": 10000,
+      "dataset": "akenginorhun/natural_reasoning_10k_seed1_claude_gemini_gpt_baselines"
+    }
+  }
+}

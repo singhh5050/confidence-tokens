@@ -1,0 +1,163 @@
+{
+  "dataset": "mmlu_pro",
+  "dataset_path": "akenginorhun/mmlu-pro_10k_seed1_Olmo-3_family_metrics",
+  "split": {
+    "source": "fresh",
+    "seed": 42,
+    "test_size": 0.2,
+    "test_pre_filter": 2000,
+    "test_post_filter": 2000
+  },
+  "num_eval": 2000,
+  "num_samples": 2000,
+  "num_skipped": 0,
+  "accuracy": 0.6885,
+  "confidence_mean": 0.40455397033691404,
+  "confidence_std": 0.330475113477577,
+  "sample_fingerprint": "c316e7d8e4c870a746093d8d81fcac6b",
+  "auroc": 0.7334692512044352,
+  "brier_score": 0.2944931330238469,
+  "ece": 0.28866087341308594,
+  "routing": {
+    "0.1": {
+      "threshold": 0.1,
+      "coverage": 0.7165,
+      "local_accuracy": 0.7752965806001396,
+      "overall_accuracy": 0.8390000000000001
+    },
+    "0.2": {
+      "threshold": 0.2,
+      "coverage": 0.6,
+      "local_accuracy": 0.81,
+      "overall_accuracy": 0.886
+    },
+    "0.3": {
+      "threshold": 0.3,
+      "coverage": 0.52,
+      "local_accuracy": 0.8221153846153846,
+      "overall_accuracy": 0.9075
+    },
+    "0.4": {
+      "threshold": 0.4,
+      "coverage": 0.4505,
+      "local_accuracy": 0.8412874583795783,
+      "overall_accuracy": 0.9285000000000001
+    },
+    "0.5": {
+      "threshold": 0.5,
+      "coverage": 0.383,
+      "local_accuracy": 0.8642297650130548,
+      "overall_accuracy": 0.948
+    },
+    "0.6": {
+      "threshold": 0.6,
+      "coverage": 0.319,
+      "local_accuracy": 0.8871473354231975,
+      "overall_accuracy": 0.964
+    },
+    "0.7": {
+      "threshold": 0.7,
+      "coverage": 0.2585,
+      "local_accuracy": 0.9090909090909091,
+      "overall_accuracy": 0.9765
+    },
+    "0.8": {
+      "threshold": 0.8,
+      "coverage": 0.1875,
+      "local_accuracy": 0.9173333333333333,
+      "overall_accuracy": 0.9844999999999999
+    },
+    "0.9": {
+      "threshold": 0.9,
+      "coverage": 0.1185,
+      "local_accuracy": 0.9746835443037974,
+      "overall_accuracy": 0.9969999999999999
+    }
+  },
+  "by_category": {
+    "philosophy": {
+      "count": 98,
+      "accuracy": 0.5408163265306123,
+      "confidence_mean": 0.10623573770328444,
+      "auroc": 0.70062893081761
+    },
+    "math": {
+      "count": 261,
+      "accuracy": 0.9310344827586207,
+      "confidence_mean": 0.78379336536159,
+      "auroc": 0.6960448102423411
+    },
+    "engineering": {
+      "count": 175,
+      "accuracy": 0.52,
+      "confidence_mean": 0.45631905691964286,
+      "auroc": 0.6267660910518054
+    },
+    "law": {
+      "count": 98,
+      "accuracy": 0.336734693877551,
+      "confidence_mean": 0.05397064831792092,
+      "auroc": 0.5673659673659673
+    },
+    "other": {
+      "count": 148,
+      "accuracy": 0.5945945945945946,
+      "confidence_mean": 0.1578628952438767,
+      "auroc": 0.6833333333333332
+    },
+    "chemistry": {
+      "count": 217,
+      "accuracy": 0.8202764976958525,
+      "confidence_mean": 0.5992493519585254,
+      "auroc": 0.628133102852204
+    },
+    "computer science": {
+      "count": 83,
+      "accuracy": 0.7349397590361446,
+      "confidence_mean": 0.3366169757153614,
+      "auroc": 0.6154992548435171
+    },
+    "history": {
+      "count": 62,
+      "accuracy": 0.3709677419354839,
+      "confidence_mean": 0.04258088142641129,
+      "auroc": 0.6337792642140468
+    },
+    "health": {
+      "count": 164,
+      "accuracy": 0.6036585365853658,
+      "confidence_mean": 0.12343355504477896,
+      "auroc": 0.6152292152292151
+    },
+    "physics": {
+      "count": 239,
+      "accuracy": 0.7907949790794979,
+      "confidence_mean": 0.6189465383106695,
+      "auroc": 0.6402116402116403
+    },
+    "business": {
+      "count": 56,
+      "accuracy": 0.8035714285714286,
+      "confidence_mean": 0.5954698835100446,
+      "auroc": 0.6858585858585858
+    },
+    "biology": {
+      "count": 106,
+      "accuracy": 0.7924528301886793,
+      "confidence_mean": 0.4010527988649764,
+      "auroc": 0.7938311688311689
+    },
+    "economics": {
+      "count": 157,
+      "accuracy": 0.6942675159235668,
+      "confidence_mean": 0.29633462504976116,
+      "auroc": 0.6465978593272171
+    },
+    "psychology": {
+      "count": 136,
+      "accuracy": 0.5955882352941176,
+      "confidence_mean": 0.25329410328584556,
+      "auroc": 0.7395061728395063
+    }
+  }
+}

@@ -1,0 +1,151 @@
+{
+  "dataset": "supergpqa",
+  "dataset_path": "akenginorhun/supergpqa_10k_seed1_Olmo-3_family_metrics",
+  "split": {
+    "source": "fresh",
+    "seed": 42,
+    "test_size": 0.2,
+    "test_pre_filter": 2000,
+    "test_post_filter": 2000
+  },
+  "num_eval": 2000,
+  "num_samples": 2000,
+  "num_skipped": 0,
+  "accuracy": 0.38,
+  "confidence_mean": 0.1326319580078125,
+  "confidence_std": 0.18821216778059952,
+  "sample_fingerprint": "e8e360e2de127c7fb81df4356619952b",
+  "auroc": 0.6304875848896435,
+  "brier_score": 0.28755906273331494,
+  "ece": 0.25468444824218744,
+  "routing": {
+    "0.1": {
+      "threshold": 0.1,
+      "coverage": 0.3095,
+      "local_accuracy": 0.5331179321486268,
+      "overall_accuracy": 0.8554999999999999
+    },
+    "0.2": {
+      "threshold": 0.2,
+      "coverage": 0.1845,
+      "local_accuracy": 0.6043360433604336,
+      "overall_accuracy": 0.927
+    },
+    "0.3": {
+      "threshold": 0.3,
+      "coverage": 0.13,
+      "local_accuracy": 0.6576923076923077,
+      "overall_accuracy": 0.9555
+    },
+    "0.4": {
+      "threshold": 0.4,
+      "coverage": 0.097,
+      "local_accuracy": 0.6907216494845361,
+      "overall_accuracy": 0.97
+    },
+    "0.5": {
+      "threshold": 0.5,
+      "coverage": 0.074,
+      "local_accuracy": 0.7027027027027027,
+      "overall_accuracy": 0.9780000000000001
+    },
+    "0.6": {
+      "threshold": 0.6,
+      "coverage": 0.049,
+      "local_accuracy": 0.6938775510204082,
+      "overall_accuracy": 0.985
+    },
+    "0.7": {
+      "threshold": 0.7,
+      "coverage": 0.0345,
+      "local_accuracy": 0.7246376811594203,
+      "overall_accuracy": 0.9905
+    },
+    "0.8": {
+      "threshold": 0.8,
+      "coverage": 0.0185,
+      "local_accuracy": 0.7837837837837838,
+      "overall_accuracy": 0.996
+    },
+    "0.9": {
+      "threshold": 0.9,
+      "coverage": 0.0065,
+      "local_accuracy": 0.6923076923076923,
+      "overall_accuracy": 0.998
+    }
+  },
+  "by_category": {
+    "Agronomy": {
+      "count": 37,
+      "accuracy": 0.3783783783783784,
+      "confidence_mean": 0.05177265888935811,
+      "auroc": 0.5947204968944099
+    },
+    "Law": {
+      "count": 45,
+      "accuracy": 0.28888888888888886,
+      "confidence_mean": 0.03408474392361111,
+      "auroc": 0.6213942307692308
+    },
+    "Economics": {
+      "count": 63,
+      "accuracy": 0.3968253968253968,
+      "confidence_mean": 0.13734654017857142,
+      "auroc": 0.6084210526315789
+    },
+    "Medicine": {
+      "count": 222,
+      "accuracy": 0.25675675675675674,
+      "confidence_mean": 0.059109249630489864,
+      "auroc": 0.5456671982987773
+    },
+    "Engineering": {
+      "count": 600,
+      "accuracy": 0.38333333333333336,
+      "confidence_mean": 0.12520843505859375,
+      "auroc": 0.5540129259694477
+    },
+    "Philosophy": {
+      "count": 25,
+      "accuracy": 0.36,
+      "confidence_mean": 0.0849072265625,
+      "auroc": 0.4097222222222222
+    },
+    "Literature and Arts": {
+      "count": 108,
+      "accuracy": 0.24074074074074073,
+      "confidence_mean": 0.02674724437572338,
+      "auroc": 0.4992964352720449
+    },
+    "History": {
+      "count": 56,
+      "accuracy": 0.2857142857142857,
+      "confidence_mean": 0.021514892578125,
+      "auroc": 0.6718750000000001
+    },
+    "Science": {
+      "count": 736,
+      "accuracy": 0.4592391304347826,
+      "confidence_mean": 0.2087850985319718,
+      "auroc": 0.6668326841307127
+    },
+    "Management": {
+      "count": 48,
+      "accuracy": 0.2916666666666667,
+      "confidence_mean": 0.05917930603027344,
+      "auroc": 0.6953781512605043
+    },
+    "Military Science": {
+      "count": 19,
+      "accuracy": 0.3684210526315789,
+      "confidence_mean": 0.025923879523026317,
+      "auroc": 0.5892857142857142
+    },
+    "Education": {
+      "count": 33,
+      "accuracy": 0.18181818181818182,
+      "confidence_mean": 0.03874252781723485,
+      "auroc": 0.6203703703703705
+    }
+  }
+}

@@ -1,0 +1,76 @@
+{
+  "dataset": "natural_reasoning",
+  "dataset_path": "akenginorhun/natural_reasoning_10k_seed1_Olmo-3_family_metrics",
+  "split": {
+    "source": "fresh",
+    "seed": 42,
+    "test_size": 0.2,
+    "test_pre_filter": 2000,
+    "test_post_filter": 2000
+  },
+  "num_eval": 2000,
+  "num_samples": 2000,
+  "num_skipped": 0,
+  "accuracy": 0.8195,
+  "confidence_mean": 0.30494091796875,
+  "confidence_std": 0.13467053197112924,
+  "sample_fingerprint": "5232ffcd7d296c0ee8fe8504ba3f1d84",
+  "auroc": 0.7057365564774143,
+  "brier_score": 0.40280309414863585,
+  "ece": 0.51455908203125,
+  "routing": {
+    "0.1": {
+      "threshold": 0.1,
+      "coverage": 0.959,
+      "local_accuracy": 0.8269030239833159,
+      "overall_accuracy": 0.834
+    },
+    "0.2": {
+      "threshold": 0.2,
+      "coverage": 0.7385,
+      "local_accuracy": 0.8740690589031821,
+      "overall_accuracy": 0.9069999999999999
+    },
+    "0.3": {
+      "threshold": 0.3,
+      "coverage": 0.4905,
+      "local_accuracy": 0.9143730886850153,
+      "overall_accuracy": 0.9580000000000001
+    },
+    "0.4": {
+      "threshold": 0.4,
+      "coverage": 0.2605,
+      "local_accuracy": 0.9366602687140115,
+      "overall_accuracy": 0.9835
+    },
+    "0.5": {
+      "threshold": 0.5,
+      "coverage": 0.094,
+      "local_accuracy": 0.9680851063829787,
+      "overall_accuracy": 0.997
+    },
+    "0.6": {
+      "threshold": 0.6,
+      "coverage": 0.012,
+      "local_accuracy": 1.0,
+      "overall_accuracy": 1.0
+    },
+    "0.7": {
+      "threshold": 0.7,
+      "coverage": 0.0005,
+      "local_accuracy": 1.0,
+      "overall_accuracy": 1.0
+    },
+    "0.8": {
+      "threshold": 0.8,
+      "coverage": 0.0,
+      "local_accuracy": null,
+      "overall_accuracy": 1.0
+    },
+    "0.9": {
+      "threshold": 0.9,
+      "coverage": 0.0,
+      "local_accuracy": null,
+      "overall_accuracy": 1.0
+    }
+  }

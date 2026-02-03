@@ -1,0 +1,77 @@
+{
+  "dataset": "wildchat",
+  "dataset_path": "akenginorhun/wildchat-4.8m_10k_seed1_Olmo-3_family_metrics_extended",
+  "split": {
+    "source": "fresh",
+    "seed": 42,
+    "test_size": 0.2,
+    "test_pre_filter": 2000,
+    "test_post_filter": 2000
+  },
+  "num_eval": 2000,
+  "num_samples": 1991,
+  "num_skipped": 9,
+  "accuracy": 0.6117528879959819,
+  "confidence_mean": 0.2751002558387745,
+  "confidence_std": 0.2519991959047,
+  "sample_fingerprint": "1fa95bf9a9acfb3dcf18cc6f34db4640",
+  "auroc": 0.6777387271989582,
+  "brier_score": 0.347358569315724,
+  "ece": 0.347047063347564,
+  "routing": {
+    "0.1": {
+      "threshold": 0.1,
+      "coverage": 0.766449020592667,
+      "local_accuracy": 0.6730013106159896,
+      "overall_accuracy": 0.7493721747865395
+    },
+    "0.2": {
+      "threshold": 0.2,
+      "coverage": 0.44098442993470616,
+      "local_accuracy": 0.7517084282460137,
+      "overall_accuracy": 0.8905072827724763
+    },
+    "0.3": {
+      "threshold": 0.3,
+      "coverage": 0.2923154193872426,
+      "local_accuracy": 0.7800687285223368,
+      "overall_accuracy": 0.9357106981416374
+    },
+    "0.4": {
+      "threshold": 0.4,
+      "coverage": 0.21346057257659468,
+      "local_accuracy": 0.8188235294117647,
+      "overall_accuracy": 0.9613259668508287
+    },
+    "0.5": {
+      "threshold": 0.5,
+      "coverage": 0.16122551481667505,
+      "local_accuracy": 0.8442367601246106,
+      "overall_accuracy": 0.9748869914615771
+    },
+    "0.6": {
+      "threshold": 0.6,
+      "coverage": 0.12807634354595682,
+      "local_accuracy": 0.8784313725490196,
+      "overall_accuracy": 0.9844299347061778
+    },
+    "0.7": {
+      "threshold": 0.7,
+      "coverage": 0.08588648920140633,
+      "local_accuracy": 0.8830409356725146,
+      "overall_accuracy": 0.9899547965846309
+    },
+    "0.8": {
+      "threshold": 0.8,
+      "coverage": 0.07332998493219488,
+      "local_accuracy": 0.8904109589041096,
+      "overall_accuracy": 0.9919638372677047
+    },
+    "0.9": {
+      "threshold": 0.9,
+      "coverage": 0.05976896032144651,
+      "local_accuracy": 0.8991596638655462,
+      "overall_accuracy": 0.9939728779507785
+    }
+  }
+}
